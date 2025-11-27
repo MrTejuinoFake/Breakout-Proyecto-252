@@ -21,4 +21,5 @@ private:
     
     // Lista donde guardaremos todos los ladrillos creados
     std::vector<Brick> bricks; 
+    sf::Texture blockTexture;
 };

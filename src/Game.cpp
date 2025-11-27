@@ -4,37 +4,45 @@
 
 
 void Game::initLevel() {
-    // CONFIGURACIÓN DE LA MATRIZ
-    const int columns = 10;        // 10 columnas
-    const int rows = 8;            // 8 filas de ladrillos
-    const float cellWidth = 80.f;  // Ancho de cada celda (800px / 10)
-    const float cellHeight = 30.f; // Alto de cada celda
-    const float startY = 50.f;     // Margen superior
+    // CONFIGURACIÓN DE LA GRILLA
+    const int columns = 15;        
+    const int rows = 8;            
+    const float cellWidth = 80.f;  
+    const float cellHeight = 30.f; 
+    const float startY = 50.f;     
 
-    // Matriz para saber si una celda ya está ocupada
-    // false = libre, true = ocupada
+    // Matriz de ocupación
     bool grid[rows][columns] = {false};
 
-    bricks.clear(); // Limpiar por si reiniciamos el juego
+    bricks.clear(); 
 
-    // Recorrer filas y columnas
+    // BUCLE DE FILAS (Vertical)
     for (int y = 0; y < rows; ++y) {
+
+        // --- CAMBIO AQUÍ ---
+        // Generamos el color UNA vez por cada Fila
+        sf::Uint8 r = std::rand() % 256;
+        sf::Uint8 g = std::rand() % 256;
+        sf::Uint8 b = std::rand() % 256;
+        sf::Color rowColor(r, g, b);
+        
+        // Evitar color negro absoluto (opcional, para que se vea)
+        if (r < 50 && g < 50 && b < 50) { 
+             rowColor = sf::Color::White; 
+        }
+
+        // BUCLE DE COLUMNAS (Horizontal)
         for (int x = 0; x < columns; ++x) {
             
-            // Si la celda ya está ocupada por un bloque anterior, saltar
             if (grid[y][x]) continue;
 
-            // Decidir tamaño aleatorio del bloque (1, 2 o 3 celdas de ancho)
-            // rand() % 3 da 0, 1 o 2. Le sumamos 1 para tener ancho 1, 2 o 3.
+            // Decidir tamaño aleatorio (1, 2 o 3 celdas)
             int widthInCells = (std::rand() % 3) + 1;
 
-            // Verificar si el bloque cabe (que no se salga del borde derecho)
             if (x + widthInCells > columns) {
-                widthInCells = columns - x; // Recortarlo para que ajuste al borde
+                widthInCells = columns - x; 
             }
 
-            // Verificar si las celdas siguientes están libres
-            // Si el bloque es de ancho 2, verificamos que la celda de al lado esté libre
             bool fits = true;
             for (int k = 0; k < widthInCells; ++k) {
                 if (grid[y][x + k]) {
@@ -42,31 +50,20 @@ void Game::initLevel() {
                     break;
                 }
             }
-            // Si no cabe (choca con otro bloque), lo forzamos a ser de 1 celda
             if (!fits) widthInCells = 1;
 
-            
-            
-            // Color aleatorio
-            sf::Uint8 r = std::rand() % 256;
-            sf::Uint8 g = std::rand() % 256;
-            sf::Uint8 b = std::rand() % 256;
-            sf::Color randomColor(r, g, b);
-
-            // Calcular posición real en píxeles
+            // --- CREAR EL LADRILLO ---
             float posX = x * cellWidth;
             float posY = startY + y * cellHeight;
             float realWidth = (widthInCells * cellWidth); 
 
-            // Crear objeto y añadirlo al vector
-            bricks.emplace_back(posX, posY, realWidth, cellHeight, randomColor);
+            // Usamos 'rowColor' que definimos arriba
+            bricks.emplace_back(posX, posY, realWidth, cellHeight, rowColor,blockTexture);
 
-            // MARCAR LAS CELDAS COMO OCUPADAS
+            // Marcar celdas
             for (int k = 0; k < widthInCells; ++k) {
                 grid[y][x + k] = true;
             }
-            
-
         }
     }
 }
@@ -74,12 +71,17 @@ void Game::initLevel() {
 
 // Constructor: Inicializa la ventana
 Game::Game() {
-    window.create(sf::VideoMode(800, 600), "Arkanoid - Procedural");
+    window.create(sf::VideoMode(800, 600), "Arkanoid - Procedural(brick and texture)");
     window.setFramerateLimit(60);
     
     // Semilla para números aleatorios (para que cambie cada vez que abres el juego)
     std::srand(static_cast<unsigned>(std::time(nullptr)));
 
+    if (!blockTexture.loadFromFile("assets/images/brick.jpeg")) {
+   
+    }
+    // Para que no se vea borroso si es pixel art
+    blockTexture.setSmooth(true);
     initLevel(); 
 }
 

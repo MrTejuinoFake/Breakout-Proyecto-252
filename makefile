@@ -4,8 +4,7 @@ BIN_DIR := bin
 INC_DIR := include
 
 # Librerías (Solo SFML)
-SFML := -lsfml-graphics -lsfml-window -lsfml-system -lsfml-audio -lsfml-main
-
+SFML := -lsfml-graphics -lsfml-window -lsfml-system -lsfml-audio -lsfml-main -lbox2d
 # 1. Encontrar todos los archivos .cpp
 CPP_FILES := $(wildcard $(SRC_DIR)/*.cpp)
 
