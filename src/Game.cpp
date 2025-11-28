@@ -1,6 +1,7 @@
 #include "Game.hpp"
 #include <ctime>
 #include <cstdlib>
+#include <iostream>
 
 
 void Game::initLevel() {
@@ -37,7 +38,7 @@ void Game::initLevel() {
             if (grid[y][x]) continue;
 
             // Decidir tamaño aleatorio (1, 2 o 3 celdas)
-            int widthInCells = (std::rand() % 3) + 1;
+            int widthInCells = (std::rand() % 2) + 1;
 
             if (x + widthInCells > columns) {
                 widthInCells = columns - x; 
@@ -52,6 +53,10 @@ void Game::initLevel() {
             }
             if (!fits) widthInCells = 1;
 
+
+
+            int textureIndex = std::rand() % 5;
+            const sf::Texture& selectedTexture = brickTextures[textureIndex];
             // --- CREAR EL LADRILLO ---
             float posX = x * cellWidth;
             float posY = startY + y * cellHeight;
@@ -71,15 +76,29 @@ void Game::initLevel() {
 
 // Constructor: Inicializa la ventana
 Game::Game() {
-    window.create(sf::VideoMode(800, 600), "Arkanoid - Procedural(brick and texture)");
+    window.create(sf::VideoMode(1000, 800), "Arkanoid - Procedural(brick and texture)");
     window.setFramerateLimit(60);
     
     // Semilla para números aleatorios (para que cambie cada vez que abres el juego)
     std::srand(static_cast<unsigned>(std::time(nullptr)));
 
-    if (!blockTexture.loadFromFile("assets/images/brick.jpeg")) {
-   
+        blockTexture.setRepeated(true);
+
+
+    std::string files[] = {"brick1.jpg", "brick2.jpg", "brick3.jpg", "brick4.jpg", "brick5.jpg"};
+    for (int i = 0; i < 5; ++i) {
+        if (!brickTextures[i].loadFromFile("assets/images/" + files[i])) {
+            // Manejo de error si una imagen no se encuentra
+            std::cerr << "Error cargando textura: " << files[i] << std::endl;
+        }
+        brickTextures[i].setRepeated(true);
     }
+    
+    // Cargar una textura principal para usar en los ladrillos
+    //if (!blockTexture.loadFromFile("assets/images/brick.jpeg")) {
+    //    std::cerr << "Error cargando textura principal: brick.jpeg" << std::endl;
+    //}
+
     // Para que no se vea borroso si es pixel art
     blockTexture.setSmooth(true);
     initLevel(); 

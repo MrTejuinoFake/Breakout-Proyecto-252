@@ -2,6 +2,7 @@
 #include <SFML/Graphics.hpp>
 #include <vector>  // Necesario para listas dinámicas
 #include "Brick.hpp" 
+#include <array>
 
 class Game {
 public:
@@ -21,5 +22,6 @@ private:
     
     // Lista donde guardaremos todos los ladrillos creados
     std::vector<Brick> bricks; 
-    sf::Texture blockTexture;
+    sf::Texture brickTextures[3];  // Array para múltiples texturas
+    sf::Texture blockTexture;      // Textura principal
 };
