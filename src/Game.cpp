@@ -2,6 +2,8 @@
 #include <ctime>
 #include <cstdlib>
 #include <iostream>
+#include <algorithm>
+#include <cmath>
 
 
 void Game::initLevel() {
@@ -102,6 +104,13 @@ Game::Game() {
     // Para que no se vea borroso si es pixel art
     blockTexture.setSmooth(true);
     initLevel(); 
+
+    // Inicializar paddle en la parte inferior
+    float paddleY = static_cast<float>(window.getSize().y) - 40.f;
+    paddle.setPosition(static_cast<float>(window.getSize().x) / 2.f, paddleY);
+
+    // Inicializar bola encima del paddle
+    ball.setPosition(paddle.getPosition().x, paddle.getPosition().y - paddle.getSize().y/2.f - ball.getRadius() - 2.f);
 }
 
 Game::~Game() {
@@ -129,7 +138,68 @@ void Game::processEvents() {
 
 // Lógica (Movimiento, colisiones)
 void Game::update() {
-    // Aquí actualizaremos la física de la bola y colisiones
+    float dt = clock.restart().asSeconds();
+
+    // --- Paddle: mover según teclado ---
+    sf::Vector2f paddlePos = paddle.getPosition();
+    float halfWidth = paddle.getSize().x / 2.f;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Left)) {
+        paddle.move(-paddle.speed * dt, 0.f);
+    }
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Right)) {
+        paddle.move(paddle.speed * dt, 0.f);
+    }
+    // Clamp paddle dentro de la ventana
+    if (paddle.getPosition().x - halfWidth < 0.f) paddle.setPosition(halfWidth, paddle.getPosition().y);
+    if (paddle.getPosition().x + halfWidth > window.getSize().x) paddle.setPosition(window.getSize().x - halfWidth, paddle.getPosition().y);
+
+    // --- Bola: actualizar posición ---
+    ball.update(dt);
+
+    // Colisión con paredes (izquierda/derecha)
+    float r = ball.getRadius();
+    sf::Vector2f pos = ball.getPosition();
+    if (pos.x - r < 0.f) {
+        ball.setPosition(r, pos.y);
+        ball.velocity.x = std::abs(ball.velocity.x);
+    }
+    if (pos.x + r > window.getSize().x) {
+        ball.setPosition(static_cast<float>(window.getSize().x) - r, pos.y);
+        ball.velocity.x = -std::abs(ball.velocity.x);
+    }
+    // Colisión con techo
+    if (pos.y - r < 0.f) {
+        ball.setPosition(pos.x, r);
+        ball.velocity.y = std::abs(ball.velocity.y);
+    }
+    // Si la bola cae abajo, reubicar sobre el paddle (reset simple)
+    if (pos.y - r > window.getSize().y) {
+        ball.setPosition(paddle.getPosition().x, paddle.getPosition().y - paddle.getSize().y/2.f - r - 2.f);
+        ball.velocity = sf::Vector2f(200.f, -200.f);
+    }
+
+    // Colisión con paddle
+    if (ball.getGlobalBounds().intersects(paddle.getGlobalBounds()) && ball.velocity.y > 0.f) {
+        // Calcular donde golpeó la pala para ajustar el ángulo
+        float relative = (ball.getPosition().x - paddle.getPosition().x) / (paddle.getSize().x / 2.f); // -1 .. 1
+        float bounceAngle = relative * 0.75f; // ajustar para limitar el ángulo
+        float speed = std::sqrt(ball.velocity.x*ball.velocity.x + ball.velocity.y*ball.velocity.y);
+        ball.velocity.x = speed * bounceAngle;
+        ball.velocity.y = -std::abs(ball.velocity.y);
+        // Alejar la bola para evitar múltiples colisiones
+        ball.setPosition(ball.getPosition().x, paddle.getPosition().y - paddle.getSize().y/2.f - r - 0.5f);
+    }
+
+    // Colisión con ladrillos
+    for (auto& brick : bricks) {
+        if (brick.isDestroyed) continue;
+        if (ball.getGlobalBounds().intersects(brick.getGlobalBounds())) {
+            brick.isDestroyed = true;
+            // Invertir componente Y de la velocidad
+            ball.velocity.y = -ball.velocity.y;
+            break; // solo procesar una colisión por frame
+        }
+    }
 }
 
 // Dibujado
@@ -138,8 +208,13 @@ void Game::render() {
 
     // Dibujar todos los ladrillos de la lista
     for (const auto& brick : bricks) {
-        window.draw(brick);
+        if (!brick.isDestroyed)
+            window.draw(brick);
     }
+
+    // Dibujar paddle y bola
+    window.draw(paddle);
+    window.draw(ball);
 
     window.display();
 }
