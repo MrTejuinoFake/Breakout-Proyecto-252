@@ -9,4 +9,6 @@ public:
     bool isDestroyed = false;
     int hitsRemaining = 1;  // Golpes restantes para destruir el bloque
     int maxHits = 1;        // Golpes máximos (para cambiar color)
+    int pointValue = 10;    // Puntos que da al destruirse
+    bool isSmallBlock = false;  // Si es un bloque pequeño
 };

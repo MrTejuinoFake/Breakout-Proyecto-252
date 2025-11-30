@@ -8,7 +8,7 @@
 
 
 void Game::initLevel() {
-    // CONFIGURACIÓN DE LA GRILLA
+    // CONFIGURACIÓN de la posicion de bloques
     const int columns = 16;        
     const int rows = 8;            
     const float cellWidth = 62.f;  
@@ -35,14 +35,14 @@ void Game::initLevel() {
     // BUCLE DE FILAS (Vertical)
     for (int y = 0; y < rows; ++y) {
 
-        // --- CAMBIO AQUÍ ---
+        
         // Seleccionar color aleatorio de los disponibles
         sf::Color rowColor;
         if (!availableColors.empty()) {
             int randomIndex = std::rand() % availableColors.size();
             rowColor = availableColors[randomIndex];
             
-            // Remover el color de la lista para que no se repita
+            // Remover el color 
             availableColors.erase(availableColors.begin() + randomIndex);
         } else {
             // Si ya usamos todos los colores, usar uno aleatorio cualquiera
@@ -54,8 +54,17 @@ void Game::initLevel() {
             
             if (grid[y][x]) continue;
 
-            // Decidir tamaño aleatorio (1, 2 o 3 celdas)
-            int widthInCells = (std::rand() % 2) + 1;
+            // Decidir tamaño aleatorio (1, 2, 3 celdas o bloque pequeño)
+            int widthInCells;
+            bool isSmallBlock = false;
+            int blockTypeRandom = std::rand() % 100;
+            
+            if (blockTypeRandom < 15) {  // 15% bloques pequeños
+                widthInCells = 1;
+                isSmallBlock = true;
+            } else {
+                widthInCells = (std::rand() % 2) + 1;  // 1 o 2 celdas normales
+            }
 
             if (x + widthInCells > columns) {
                 widthInCells = columns - x; 
@@ -78,25 +87,43 @@ void Game::initLevel() {
             // --- CREAR EL LADRILLO ---
             float posX = x * cellWidth;
             float posY = startY + y * cellHeight;
-            float realWidth = (widthInCells * cellWidth); 
+            float realWidth = isSmallBlock ? (cellWidth * 0.6f) : (widthInCells * cellWidth);
+            float realHeight = isSmallBlock ? (cellHeight * 0.6f) : cellHeight;
+            
+            // Centrar bloques pequeños
+            if (isSmallBlock) {
+                posX += (cellWidth - realWidth) / 2.0f;
+                posY += (cellHeight - realHeight) / 2.0f;
+            } 
 
             // Decidir aleatoriamente el tipo de bloque
             int hits = 1;
             sf::Color brickColor = rowColor;
+            int pointValue = 10;  // Valor por defecto
             
-            int random = std::rand() % 100;
-            
-            if (random < 10) {  // 10% de probabilidad - BLOQUES MORADOS (3 golpes)
-                hits = 3;
-                brickColor = sf::Color(150, 0, 200);  // Morado intenso para bloques de 3 golpes
+            if (isSmallBlock) {
+                brickColor = sf::Color(255, 255, 0);  // Amarillo para bloques pequeños
+                pointValue = 50;  // Bloques pequeños dan más puntos
+            } else {
+                int random = std::rand() % 100;
+                
+                if (random < 10) {  // 10% de probabilidad - BLOQUES MORADOS (3 golpes)
+                    hits = 3;
+                    brickColor = sf::Color(150, 0, 200);  // Morado intenso
+                    pointValue = 100;  // 100 puntos al destruirlo completamente
+                }
+                else if (random < 25) {  // 15% de probabilidad - BLOQUES ROJOS (2 golpes)
+                    hits = 2;
+                    brickColor = sf::Color(200, 0, 0);  // Rojo intenso
+                    pointValue = 20;
+                }
+                // El resto son bloques normales de 1 golpe (10 puntos)
             }
-            else if (random < 25) {  // 15% de probabilidad - BLOQUES ROJOS (2 golpes)
-                hits = 2;
-                brickColor = sf::Color(200, 0, 0);  // Rojo intenso para bloques de 2 golpes
-            }
-            // El resto (75%) son bloques normales de 1 golpe
 
-            bricks.emplace_back(posX, posY, realWidth, cellHeight, brickColor, selectedTexture, hits);
+            bricks.emplace_back(posX, posY, realWidth, realHeight, brickColor, selectedTexture, hits);
+            // Guardar información adicional del bloque
+            bricks.back().pointValue = pointValue;
+            bricks.back().isSmallBlock = isSmallBlock;
 
             // Marcar celdas
             for (int k = 0; k < widthInCells; ++k) {
@@ -108,10 +135,10 @@ void Game::initLevel() {
 
 
 // Constructor: Inicializa la ventana
-Game::Game() : state(GameState::Menu) {
+Game::Game() : state(GameState::Menu), lives(3), score(0) {
     std::cout << "--- INICIANDO JUEGO ---" << std::endl;
-    window.create(sf::VideoMode(1000, 800), "Arkanoid - semi texturizado");
-    window.setFramerateLimit(60);
+    window.create(sf::VideoMode(1000, 800), "Arkanoid - sonido fisicas(blk ylw & prl)", sf::Style::Titlebar | sf::Style::Close);
+    window.setFramerateLimit(120);
     
     // Semilla para números aleatorios (para que cambie cada vez que abres el juego)
     std::srand(static_cast<unsigned>(std::time(nullptr)));
@@ -138,11 +165,71 @@ Game::Game() : state(GameState::Menu) {
     instructionText.setString("Presiona ESPACIO para jugar\nPresiona ESC para salir");
     instructionText.setCharacterSize(24);
     instructionText.setFillColor(sf::Color::Yellow);
-    instructionText.setPosition(225, 400);
+    instructionText.setPosition(320, 400);
+    
+    // Configurar textos del juego
+    livesText.setFont(font);
+    livesText.setCharacterSize(20);
+    livesText.setFillColor(sf::Color::White);
+    livesText.setPosition(10, 10);
+    
+    scoreText.setFont(font);
+    scoreText.setCharacterSize(20);
+    scoreText.setFillColor(sf::Color::White);
+    scoreText.setPosition(10, 40);
+    
+    // Textos de Game Over
+    gameOverText.setFont(font);
+    gameOverText.setString("GAME OVER");
+    gameOverText.setCharacterSize(72);
+    gameOverText.setFillColor(sf::Color::Red);
+    
+    finalScoreText.setFont(font);
+    finalScoreText.setCharacterSize(32);
+    finalScoreText.setFillColor(sf::Color::Yellow);
+    
+    // Centrar textos de Game Over
+    sf::FloatRect gameOverRect = gameOverText.getLocalBounds();
+    gameOverText.setOrigin(gameOverRect.left + gameOverRect.width/2.0f, gameOverRect.top + gameOverRect.height/2.0f);
+    gameOverText.setPosition(window.getSize().x / 2.0f, window.getSize().y / 2.0f - 50);
+    
+    sf::FloatRect scoreRect = finalScoreText.getLocalBounds();
+    finalScoreText.setOrigin(scoreRect.left + scoreRect.width/2.0f, scoreRect.top + scoreRect.height/2.0f);
+    finalScoreText.setPosition(window.getSize().x / 2.0f, window.getSize().y / 2.0f + 50);
 
     sf::FloatRect instRect = instructionText.getLocalBounds();
     instructionText.setOrigin(instRect.left + instRect.width/2.0f, instRect.top + instRect.height/2.0f);
     instructionText.setPosition(window.getSize().x / 2.0f, 400);
+    
+    // Cargar archivos de audio
+    if (!bounceBuffer.loadFromFile("assets/music/bounce.mp3")) {
+        std::cout << "No se pudo cargar bounce.mp3" << std::endl;
+    } else {
+        bounceSound.setBuffer(bounceBuffer);
+        bounceSound.setVolume(70);  
+    }
+    
+    if (!backgroundMusic.openFromFile("assets/music/background.mp3")) {
+        std::cout << "No se pudo cargar background.mp3" << std::endl;
+    } else {
+        backgroundMusic.setLoop(true);
+        backgroundMusic.setVolume(30); 
+    }
+    
+    // Cargar música del menú
+    if (!menuMusic.openFromFile("assets/music/menu.mp3")) {
+       // std::cout << "No se pudo cargar menu.mp3" << std::endl;
+    } else {
+        menuMusic.setLoop(true);
+        menuMusic.setVolume(40);  
+    }
+    
+    // Cargar sonido de game over
+    if (!gameOverBuffer.loadFromFile("assets/music/gameover.mp3")) {
+    } else {
+        gameOverSound.setBuffer(gameOverBuffer);
+        gameOverSound.setVolume(50);  
+    }
 
 
     blockTexture.setRepeated(true);
@@ -153,7 +240,7 @@ Game::Game() : state(GameState::Menu) {
         if (!brickTextures[i].loadFromFile("assets/images/" + files[i])) {
             // Manejo de error si una imagen no se encuentra
             std::cerr << "Error cargando textura: " << files[i] << std::endl;
-            // Crear una textura simple de color sólido en lugar de terminar el programa
+            // Crear una textura simple de color sólido en lugar de terminar el programa y se cierre
             sf::Image defaultImage;
             defaultImage.create(32, 32, sf::Color::White);
             brickTextures[i].loadFromImage(defaultImage);
@@ -174,6 +261,9 @@ Game::Game() : state(GameState::Menu) {
     ball.setPosition(paddle.getPosition().x, paddle.getPosition().y - paddle.getSize().y/2.f - ball.getRadius() - 2.f);
     ball.isStuck = true; // Comienza pegada
     ball.velocity = sf::Vector2f(0.f, 0.f); // Sin velocidad inicial
+    
+    // Iniciar música del menú automáticamente
+    menuMusic.play();
 }
 
 Game::~Game() {
@@ -200,8 +290,26 @@ void Game::processEvents() {
                 if (event.key.code == sf::Keyboard::Space) {
                     state = GameState::Playing;
                     resetGame();
+                    menuMusic.stop();           // Parar música del menú
+                    backgroundMusic.play();     // Iniciar música de fondo
                 }
                 if (event.key.code == sf::Keyboard::Escape) {
+                    menuMusic.stop();
+                    backgroundMusic.stop();
+                    window.close();
+                }
+            }
+            else if (state == GameState::GameOver) {
+                if (event.key.code == sf::Keyboard::Space) {
+                    state = GameState::Menu;
+                    lives = 3;
+                    score = 0;
+                    backgroundMusic.stop();  // Parar música de fondo
+                    menuMusic.play();        // Volver a música del menú
+                }
+                if (event.key.code == sf::Keyboard::Escape) {
+                    menuMusic.stop();
+                    backgroundMusic.stop();
                     window.close();
                 }
             }
@@ -217,7 +325,7 @@ void Game::processEvents() {
 
 // Lógica (Movimiento, colisiones)
 void Game::update() {
-    if (state == GameState::Menu) return;
+    if (state != GameState::Playing) return;
     
     float dt = clock.restart().asSeconds();
 
@@ -249,21 +357,22 @@ void Game::update() {
     if (pos.x - r < 0.f) {
         ball.setPosition(r, pos.y);
         ball.velocity.x = std::abs(ball.velocity.x);
+        bounceSound.play();  // Sonido de rebote
     }
     if (pos.x + r > window.getSize().x) {
         ball.setPosition(static_cast<float>(window.getSize().x) - r, pos.y);
         ball.velocity.x = -std::abs(ball.velocity.x);
+        bounceSound.play();  // Sonido de rebote
     }
     // Colisión con techo
     if (pos.y - r < 0.f) {
         ball.setPosition(pos.x, r);
         ball.velocity.y = std::abs(ball.velocity.y);
+        bounceSound.play();  // Sonido de rebote
     }
-    // Si la bola cae abajo, pegarla de nuevo al paddle
+    // Si la bola cae abajo, perder vida
     if (pos.y - r > window.getSize().y) {
-        ball.isStuck = true;
-        ball.velocity = sf::Vector2f(0.f, 0.f);
-        // La posición se actualizará en el próximo frame
+        loseLife();
     }
 
     // Colisión con paddle
@@ -276,6 +385,7 @@ void Game::update() {
         ball.velocity.y = -std::abs(ball.velocity.y);
         // Alejar la bola para evitar múltiples colisiones
         ball.setPosition(ball.getPosition().x, paddle.getPosition().y - paddle.getSize().y/2.f - r - 0.5f);
+        bounceSound.play();  // Sonido de rebote
     }
 
     // Colisión con ladrillos
@@ -288,7 +398,18 @@ void Game::update() {
             // Si ya no quedan golpes, destruir el bloque
             if (brick.hitsRemaining <= 0) {
                 brick.isDestroyed = true;
+                score += brick.pointValue;
+                
+                // Efecto especial para bloques pequeños: aumentar velocidad 5%
+                if (brick.isSmallBlock) {
+                    ball.velocity *= 1.05f;
+                }
             } else {
+                // Efecto especial para bloques de 3 golpes: aumentar restitución
+                if (brick.maxHits == 3) {
+                    float speedIncrease = 1.02f;  // 2% más velocidad por golpe
+                    ball.velocity *= speedIncrease;
+                }
                 // Cambiar color según el daño recibido
                 if (brick.maxHits == 3) {  // Bloques morados
                     if (brick.hitsRemaining == 2) {
@@ -304,8 +425,26 @@ void Game::update() {
             
             // Invertir componente Y de la velocidad
             ball.velocity.y = -ball.velocity.y;
+            bounceSound.play();  // Sonido de rebote
             break; // solo procesar una colisión por frame
         }
+    }
+    
+    // Verificar si todos los bloques están destruidos
+    bool allDestroyed = true;
+    for (const auto& brick : bricks) {
+        if (!brick.isDestroyed) {
+            allDestroyed = false;
+            break;
+        }
+    }
+    
+    // Si todos los bloques están destruidos, reiniciar nivel
+    if (allDestroyed && !bricks.empty()) {
+        initLevel();  // Recrear todos los bloques
+        // Reiniciar bola pegada al paddle
+        ball.isStuck = true;
+        ball.velocity = sf::Vector2f(0.f, 0.f);
     }
 }
 
@@ -325,6 +464,14 @@ void Game::render() {
         // Dibujar paddle y bola
         window.draw(paddle);
         window.draw(ball);
+        
+        // Actualizar y dibujar HUD
+        livesText.setString("Vidas: " + std::to_string(lives));
+        scoreText.setString("Puntos: " + std::to_string(score));
+        window.draw(livesText);
+        window.draw(scoreText);
+    } else if (state == GameState::GameOver) {
+        renderGameOver();
     }
 
     window.display();
@@ -378,5 +525,30 @@ void Game::resetGame() {
     ball.setPosition(paddle.getPosition().x, paddle.getPosition().y - paddle.getSize().y/2.f - ball.getRadius() - 2.f);
     ball.isStuck = true;
     ball.velocity = sf::Vector2f(0.f, 0.f);
+}
+
+void Game::loseLife() {
+    lives--;
+    if (lives <= 0) {
+        // Game Over
+        state = GameState::GameOver;
+        backgroundMusic.stop();    // Parar música de fondo
+        gameOverSound.play();      // Reproducir sonido de game over
+        finalScoreText.setString("Puntuacion Final: " + std::to_string(score) + "\nPresiona ESPACIO para continuar");
+        
+        // Recentrar el texto de puntuación final
+        sf::FloatRect scoreRect = finalScoreText.getLocalBounds();
+        finalScoreText.setOrigin(scoreRect.left + scoreRect.width/2.0f, scoreRect.top + scoreRect.height/2.0f);
+        finalScoreText.setPosition(window.getSize().x / 2.0f, window.getSize().y / 2.0f + 50);
+    } else {
+        // Reiniciar bola pegada al paddle
+        ball.isStuck = true;
+        ball.velocity = sf::Vector2f(0.f, 0.f);
+    }
+}
+
+void Game::renderGameOver() {
+    window.draw(gameOverText);
+    window.draw(finalScoreText);
 }
 
