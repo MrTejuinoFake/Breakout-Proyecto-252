@@ -8,4 +8,7 @@ public:
 
     sf::Vector2f velocity;
     float speed;
+    
+    // NUEVO: Estado para saber si está pegada al paddle
+    bool isStuck; 
 };

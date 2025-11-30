@@ -6,6 +6,12 @@
 #include "Paddle.hpp"
 #include <array>
 
+enum class GameState {
+    Menu,
+    Playing,
+    GameOver
+};
+
 class Game {
 public:
     Game();
@@ -16,11 +22,14 @@ private:
     void processEvents();
     void update();
     void render();
+    void renderMenu();
+    void resetGame();
 
     // Nueva función para crear el nivel
     void initLevel(); 
 
     sf::RenderWindow window;
+    GameState state;
     
     // Lista donde guardaremos todos los ladrillos creados
     std::vector<Brick> bricks; 
@@ -33,4 +42,9 @@ private:
     
     // Reloj para delta time
     sf::Clock clock;
+    
+    // Fuente para el menú
+    sf::Font font;
+    sf::Text menuText;
+    sf::Text instructionText;
 };
