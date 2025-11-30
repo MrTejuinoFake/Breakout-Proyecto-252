@@ -5,15 +5,43 @@
 #include <algorithm>
 #include <cmath>
 #include <vector>
+#include <cctype>
 
 
 void Game::initLevel() {
-    // CONFIGURACIÓN de la posicion de bloques
-    const int columns = 16;        
-    const int rows = 8;            
-    const float cellWidth = 62.f;  
-    const float cellHeight = 30.f; 
-    const float startY = 50.f;     
+    // ===============================================
+    // CONSTANTES DE CONFIGURACIÓN 
+    // ===============================================
+    
+    // Dimensiones de la grilla
+    const int columns = 16;                  // Número de columnas de bloques
+    const int rows = 8;                      // Número de filas de bloques
+    
+    // Tamaño de cada celda
+    const float cellWidth = 60.f;           // Ancho de cada celda en píxeles
+    const float cellHeight = 30.f;          // Alto de cada celda en píxeles
+    
+    // Posicionamiento
+    const float startX = 8.0f;              // Distancia desde el borde izquierdo
+    const float startY = 200.f;             // Distancia desde la parte superior
+    
+    // Probabilidades de bloques especiales
+    const int smallBlockChance = 15;        // % probabilidad de bloques pequeños (0-100)
+    const int purpleBlockChance = 10;       // % probabilidad de bloques morados 3 golpes (0-100)  
+    const int redBlockChance = 25;          // % probabilidad de bloques rojos 2 golpes (0-100)
+    
+    // Valores de puntuación
+    const int normalBlockPoints = 10;       // Puntos por bloque normal (1 golpe)
+    const int redBlockPoints = 20;          // Puntos por bloque rojo (2 golpes)
+    const int purpleBlockPoints = 100;      // Puntos por bloque morado (3 golpes)
+    const int smallBlockPoints = 50;        // Puntos por bloque pequeño (amarillo)
+    
+    // Tamaño de bloques pequeños (factor de reducción)
+    const float smallBlockSizeFactor = 0.9f; // 90% del tamaño normal
+    
+    // ===============================================
+    // LÓGICA DEL JUEGO 
+    // ===============================================
 
     // Matriz de ocupación
     bool grid[rows][columns] = {false};
@@ -59,7 +87,7 @@ void Game::initLevel() {
             bool isSmallBlock = false;
             int blockTypeRandom = std::rand() % 100;
             
-            if (blockTypeRandom < 15) {  // 15% bloques pequeños
+            if (blockTypeRandom < smallBlockChance) {  // % bloques pequeños
                 widthInCells = 1;
                 isSmallBlock = true;
             } else {
@@ -81,14 +109,20 @@ void Game::initLevel() {
 
 
 
-            int textureIndex = std::rand() % 5;
-            const sf::Texture& selectedTexture = brickTextures[textureIndex];
+            // Seleccionar textura según el tipo de bloque
+            const sf::Texture* selectedTexture;
+            if (isSmallBlock) {
+                selectedTexture = &yellowBlockTexture; // Textura específica para bloques amarillos
+            } else {
+                int textureIndex = std::rand() % 5;
+                selectedTexture = &brickTextures[textureIndex]; // Textura aleatoria para otros bloques
+            }
             
             // --- CREAR EL LADRILLO ---
-            float posX = x * cellWidth;
+            float posX = startX + (x * cellWidth); // Usar startX para centrar
             float posY = startY + y * cellHeight;
-            float realWidth = isSmallBlock ? (cellWidth * 0.6f) : (widthInCells * cellWidth);
-            float realHeight = isSmallBlock ? (cellHeight * 0.6f) : cellHeight;
+            float realWidth = isSmallBlock ? (cellWidth * smallBlockSizeFactor) : (widthInCells * cellWidth);
+            float realHeight = isSmallBlock ? (cellHeight * smallBlockSizeFactor) : cellHeight;
             
             // Centrar bloques pequeños
             if (isSmallBlock) {
@@ -99,28 +133,28 @@ void Game::initLevel() {
             // Decidir aleatoriamente el tipo de bloque
             int hits = 1;
             sf::Color brickColor = rowColor;
-            int pointValue = 10;  // Valor por defecto
+            int pointValue = normalBlockPoints;  // Valor por defecto
             
             if (isSmallBlock) {
                 brickColor = sf::Color(255, 255, 0);  // Amarillo para bloques pequeños
-                pointValue = 50;  // Bloques pequeños dan más puntos
+                pointValue = smallBlockPoints;  // Puntos de bloques pequeños
             } else {
                 int random = std::rand() % 100;
                 
-                if (random < 10) {  // 10% de probabilidad - BLOQUES MORADOS (3 golpes)
+                if (random < purpleBlockChance) {  // % de probabilidad - BLOQUES MORADOS (3 golpes)
                     hits = 3;
                     brickColor = sf::Color(150, 0, 200);  // Morado intenso
-                    pointValue = 100;  // 100 puntos al destruirlo completamente
+                    pointValue = purpleBlockPoints;  // Puntos por bloque morado
                 }
-                else if (random < 25) {  // 15% de probabilidad - BLOQUES ROJOS (2 golpes)
+                else if (random < redBlockChance) {  // % de probabilidad - BLOQUES ROJOS (2 golpes)
                     hits = 2;
                     brickColor = sf::Color(200, 0, 0);  // Rojo intenso
-                    pointValue = 20;
+                    pointValue = redBlockPoints;  // Puntos por bloque rojo
                 }
-                // El resto son bloques normales de 1 golpe (10 puntos)
+                // El resto son bloques normales de 1 golpe
             }
 
-            bricks.emplace_back(posX, posY, realWidth, realHeight, brickColor, selectedTexture, hits);
+            bricks.emplace_back(posX, posY, realWidth, realHeight, brickColor, *selectedTexture, hits);
             // Guardar información adicional del bloque
             bricks.back().pointValue = pointValue;
             bricks.back().isSmallBlock = isSmallBlock;
@@ -136,9 +170,54 @@ void Game::initLevel() {
 
 // Constructor: Inicializa la ventana
 Game::Game() : state(GameState::Menu), lives(3), score(0) {
+    // ===============================================
+    // CONSTANTES DE TEXTO Y POSICIONES 
+    // ===============================================
+    
+    // Configuración de ventana
+    const int windowWidth = 1000;
+    const int windowHeight = 800;
+    const std::string windowTitle = "COCONOID";
+    
+    // Tamaños de fuente
+    const int titleFontSize = 18;
+    const int instructionFontSize = 18;
+    const int hudFontSize = 14;
+    const int gameOverFontSize = 72;
+    const int finalScoreFontSize = 32;
+    const int terminalFontSize = 16;
+    const int commandFontSize = 14;
+    const int progressFontSize = 14;
+    
+    // Posiciones del menú terminal
+    const float terminalTitleY = 120.f;
+    const float terminalPromptX = 30.f;
+    const float terminalPromptY = 150.f;
+    const float commandListY = 250.f;
+    const float progressStartY = 320.f;
+    
+    // Posiciones del HUD en juego
+    const float hudY = 65.f;
+    const float hudSeparation = 40.f;
+    
+    // Posiciones de Game Over
+    const float gameOverTitleY = 135.f;
+    const float gameOverScoreY = 160.f;
+    const float gameOverPromptY = 220.f;
+    const float gameOverCommandsY = 310.f;
+    const float gameOverProgressY = 380.f;
+    
     std::cout << "--- INICIANDO JUEGO ---" << std::endl;
-    window.create(sf::VideoMode(1000, 800), "Arkanoid - sonido fisicas(blk ylw & prl)", sf::Style::Titlebar | sf::Style::Close);
+    window.create(sf::VideoMode(windowWidth, windowHeight), windowTitle, sf::Style::Titlebar | sf::Style::Close);
     window.setFramerateLimit(120);
+    
+    // Cargar y establecer icono de la ventana
+    if (windowIcon.loadFromFile("assets/images/logo.png")) {
+        window.setIcon(windowIcon.getSize().x, windowIcon.getSize().y, windowIcon.getPixelsPtr());
+        std::cout << "Icono cargado exitosamente" << std::endl;
+    } else {
+        std::cout << "No se pudo cargar el icono logo.png" << std::endl;
+    }
     
     // Semilla para números aleatorios (para que cambie cada vez que abres el juego)
     std::srand(static_cast<unsigned>(std::time(nullptr)));
@@ -146,16 +225,15 @@ Game::Game() : state(GameState::Menu), lives(3), score(0) {
     // Cargar fuente para el menú
     if (!font.loadFromFile("assets/fonts/PressStart2P-Regular.ttf")) {
         // Si no encuentra la fuente, usar la fuente por defecto del sistema
-        std::cout << "No se pudo cargar arial.ttf, usando fuente por defecto" << std::endl;
+        std::cout << "No se pudo cargar la mendiga letra.ttf, usando fuente por defecto" << std::endl;
         exit(1);
     }
     
     // Configurar texto del menú
     menuText.setFont(font);
     menuText.setString("ARKANOID");
-    menuText.setCharacterSize(72);
+    menuText.setCharacterSize(titleFontSize);
     menuText.setFillColor(sf::Color::White);
-   // menuText.setPosition(200, 250);
 
     sf::FloatRect titleRect = menuText.getLocalBounds();
     menuText.setOrigin(titleRect.left + titleRect.width/2.0f, titleRect.top + titleRect.height/2.0f);
@@ -163,29 +241,27 @@ Game::Game() : state(GameState::Menu), lives(3), score(0) {
     
     instructionText.setFont(font);
     instructionText.setString("Presiona ESPACIO para jugar\nPresiona ESC para salir");
-    instructionText.setCharacterSize(24);
-    instructionText.setFillColor(sf::Color::Yellow);
+    instructionText.setCharacterSize(instructionFontSize);
+    instructionText.setFillColor(sf::Color::White);
     instructionText.setPosition(320, 400);
     
-    // Configurar textos del juego
+    // Configurar textos del juego (HUD)
     livesText.setFont(font);
-    livesText.setCharacterSize(20);
-    livesText.setFillColor(sf::Color::White);
-    livesText.setPosition(10, 10);
+    livesText.setCharacterSize(hudFontSize);
+    livesText.setFillColor(sf::Color::Green);
     
     scoreText.setFont(font);
-    scoreText.setCharacterSize(20);
-    scoreText.setFillColor(sf::Color::White);
-    scoreText.setPosition(10, 40);
+    scoreText.setCharacterSize(hudFontSize);
+    scoreText.setFillColor(sf::Color::Green);
     
     // Textos de Game Over
     gameOverText.setFont(font);
     gameOverText.setString("GAME OVER");
-    gameOverText.setCharacterSize(72);
+    gameOverText.setCharacterSize(gameOverFontSize);
     gameOverText.setFillColor(sf::Color::Red);
     
     finalScoreText.setFont(font);
-    finalScoreText.setCharacterSize(32);
+    finalScoreText.setCharacterSize(finalScoreFontSize);
     finalScoreText.setFillColor(sf::Color::Yellow);
     
     // Centrar textos de Game Over
@@ -248,6 +324,17 @@ Game::Game() : state(GameState::Menu), lives(3), score(0) {
         brickTextures[i].setRepeated(true);
     }
     
+    // Cargar textura específica para bloques amarillos (velocidad)
+    if (!yellowBlockTexture.loadFromFile("assets/images/error.jpg")) {
+        std::cerr << "Error cargando textura amarilla: error.jpg" << std::endl;
+        // Crear textura por defecto si no se encuentra
+        sf::Image defaultYellow;
+        defaultYellow.create(32, 32, sf::Color::Yellow);
+        yellowBlockTexture.loadFromImage(defaultYellow);
+    }
+    yellowBlockTexture.setRepeated(true);
+    yellowBlockTexture.setSmooth(true);
+    
  
     // Para que no se vea borroso si es pixel art
     blockTexture.setSmooth(true);
@@ -262,7 +349,86 @@ Game::Game() : state(GameState::Menu), lives(3), score(0) {
     ball.isStuck = true; // Comienza pegada
     ball.velocity = sf::Vector2f(0.f, 0.f); // Sin velocidad inicial
     
-    // Iniciar música del menú automáticamente
+    // Cargar fondos estáticos
+    if (!menuBackgroundTexture.loadFromFile("assets/images/menu_background.png")) {
+        std::cout << "No se pudo cargar menu_background.png" << std::endl;
+    }
+    /*
+    if (!gameBackgroundTexture.loadFromFile("assets/images/game_background.png")) {
+        std::cout << "No se pudo cargar game_background.png" << std::endl;
+    }
+    
+    if (!gameOverBackgroundTexture.loadFromFile("assets/images/gameover_background.png")) {
+        std::cout << "No se pudo cargar gameover_background.png" << std::endl;
+    }
+    */
+    // Configurar sprite de fondo
+    backgroundSprite.setPosition(0, 0);
+    
+    // Inicializar efecto Matrix
+    showMatrixEffect = false;
+    initMatrixEffect();
+    
+    // Inicializar nivel
+    currentLevel = 1;
+    
+    // Inicializar sistema de menú terminal
+    currentInput = "";
+    targetPlay = "play";
+    targetExit = "exit";
+    playProgress = {false, false, false, false}; // p, l, a, y
+    exitProgress = {false, false, false, false}; // e, x, i, t
+    
+    // Configurar textos del menú terminal
+    terminalPrompt.setFont(font);
+    terminalPrompt.setString("C:\\ARKANOID> ");
+    terminalPrompt.setCharacterSize(terminalFontSize);
+    terminalPrompt.setFillColor(sf::Color::Green);
+    terminalPrompt.setPosition(terminalPromptX, terminalPromptY);
+    
+    titleCommand.setFont(font);
+    titleCommand.setString("> ARKANOID TERMINAL v1.0");
+    titleCommand.setCharacterSize(20);
+    titleCommand.setFillColor(sf::Color::Cyan);
+    titleCommand.setPosition(terminalPromptX, terminalTitleY);
+    
+    playCommand.setFont(font);
+    playCommand.setString("PLAY - Iniciar juego");
+    playCommand.setCharacterSize(commandFontSize);
+    playCommand.setFillColor(sf::Color::White);
+    playCommand.setPosition(50, commandListY);
+    
+    exitCommand.setFont(font);
+    exitCommand.setString("EXIT - Salir del programa");
+    exitCommand.setCharacterSize(commandFontSize);
+    exitCommand.setFillColor(sf::Color::White);
+    exitCommand.setPosition(50, commandListY + 30);
+    
+    // Inicializar sistema de menú terminal de game over
+    currentGameOverInput = "";
+    targetReboot = "reboot";
+    rebootProgress = {false, false, false, false, false, false}; // r, e, b, o, o, t
+    gameOverExitProgress = {false, false, false, false}; // e, x, i, t
+    
+    gameOverPrompt.setFont(font);
+    gameOverPrompt.setString("SYSTEM> ");
+    gameOverPrompt.setCharacterSize(terminalFontSize);
+    gameOverPrompt.setFillColor(sf::Color::Red);
+    gameOverPrompt.setPosition(50, gameOverPromptY);
+    
+    rebootCommand.setFont(font);
+    rebootCommand.setString("REBOOT - Reiniciar sistema");
+    rebootCommand.setCharacterSize(commandFontSize);
+    rebootCommand.setFillColor(sf::Color::White);
+    rebootCommand.setPosition(50, gameOverCommandsY);
+    
+    gameOverExitCommand.setFont(font);
+    gameOverExitCommand.setString("EXIT - Cerrar sistema");
+    gameOverExitCommand.setCharacterSize(commandFontSize);
+    gameOverExitCommand.setFillColor(sf::Color::White);
+    gameOverExitCommand.setPosition(50, gameOverCommandsY + 30);
+    
+    // Inicializar música del menú automáticamente
     menuMusic.play();
 }
 
@@ -285,32 +451,46 @@ void Game::processEvents() {
         if (event.type == sf::Event::Closed)
             window.close();
             
+        // Capturar entrada de texto para el menú terminal
+        if (event.type == sf::Event::TextEntered && state == GameState::Menu) {
+            if (event.text.unicode >= 32 && event.text.unicode < 128) {
+                char c = static_cast<char>(event.text.unicode);
+                processTerminalInput(std::tolower(c));
+            }
+        }
+        
+        // Capturar entrada de texto para game over terminal
+        if (event.type == sf::Event::TextEntered && state == GameState::GameOver) {
+            if (event.text.unicode >= 32 && event.text.unicode < 128) {
+                char c = static_cast<char>(event.text.unicode);
+                processGameOverInput(std::tolower(c));
+            }
+        }
+        
         if (event.type == sf::Event::KeyPressed) {
             if (state == GameState::Menu) {
-                if (event.key.code == sf::Keyboard::Space) {
-                    state = GameState::Playing;
-                    resetGame();
-                    menuMusic.stop();           // Parar música del menú
-                    backgroundMusic.play();     // Iniciar música de fondo
-                }
+                // Solo permitir ESC para salir en el menú
                 if (event.key.code == sf::Keyboard::Escape) {
                     menuMusic.stop();
                     backgroundMusic.stop();
                     window.close();
+                }
+                // Backspace para borrar
+                if (event.key.code == sf::Keyboard::BackSpace && !currentInput.empty()) {
+                    currentInput.pop_back();
+                    updateTerminalDisplay();
                 }
             }
             else if (state == GameState::GameOver) {
-                if (event.key.code == sf::Keyboard::Space) {
-                    state = GameState::Menu;
-                    lives = 3;
-                    score = 0;
-                    backgroundMusic.stop();  // Parar música de fondo
-                    menuMusic.play();        // Volver a música del menú
-                }
+                // Solo permitir ESC para salir en game over
                 if (event.key.code == sf::Keyboard::Escape) {
                     menuMusic.stop();
                     backgroundMusic.stop();
                     window.close();
+                }
+                // Backspace para borrar en game over
+                if (event.key.code == sf::Keyboard::BackSpace && !currentGameOverInput.empty()) {
+                    currentGameOverInput.pop_back();
                 }
             }
             else if (state == GameState::Playing) {
@@ -325,9 +505,14 @@ void Game::processEvents() {
 
 // Lógica (Movimiento, colisiones)
 void Game::update() {
-    if (state != GameState::Playing) return;
-    
     float dt = clock.restart().asSeconds();
+    
+    // Actualizar efecto Matrix si está activo
+    if (showMatrixEffect && state == GameState::GameOver) {
+        updateMatrixEffect();
+    }
+    
+    if (state != GameState::Playing) return;
 
     // --- Paddle: mover según teclado ---
     sf::Vector2f paddlePos = paddle.getPosition();
@@ -439,9 +624,10 @@ void Game::update() {
         }
     }
     
-    // Si todos los bloques están destruidos, reiniciar nivel
+    // Si todos los bloques están destruidos, avanzar al siguiente nivel
     if (allDestroyed && !bricks.empty()) {
-        initLevel();  // Recrear todos los bloques
+        currentLevel++;  // Incrementar nivel
+        initLevel();     // Recrear todos los bloques
         // Reiniciar bola pegada al paddle
         ball.isStuck = true;
         ball.velocity = sf::Vector2f(0.f, 0.f);
@@ -450,7 +636,59 @@ void Game::update() {
 
 // Dibujado
 void Game::render() {
+    // ===============================================
+    // CONSTANTES DE POSICIÓN Y TAMAÑO - RENDER
+    // ===============================================
+    
+    // Posiciones del HUD en juego
+    const float hudY = 65.f;
+    const float hudSeparation = 40.f;
+    
     window.clear(sf::Color::Black);
+    
+    // Configurar y dibujar fondo según el estado
+    if (state == GameState::Menu) {
+        backgroundSprite.setTexture(menuBackgroundTexture);
+        // Escalar dinámicamente
+        if (menuBackgroundTexture.getSize().x > 0) {
+            float scaleX = static_cast<float>(window.getSize().x) / menuBackgroundTexture.getSize().x;
+            float scaleY = static_cast<float>(window.getSize().y) / menuBackgroundTexture.getSize().y;
+            backgroundSprite.setScale(scaleX, scaleY);
+        }
+        window.draw(backgroundSprite);
+    } else if (state == GameState::Playing) {
+        backgroundSprite.setTexture(menuBackgroundTexture);  // Usar la misma textura del menú
+        // Escalar dinámicamente
+        if (menuBackgroundTexture.getSize().x > 0) {
+            float scaleX = static_cast<float>(window.getSize().x) / menuBackgroundTexture.getSize().x;
+            float scaleY = static_cast<float>(window.getSize().y) / menuBackgroundTexture.getSize().y;
+            backgroundSprite.setScale(scaleX, scaleY);
+        }
+        
+        // Aplicar tinte rojo progresivo según el nivel
+        float redIntensity = std::min(1.0f, (currentLevel - 1) * 0.1f);  // 10% más rojo por nivel
+        sf::Uint8 red = static_cast<sf::Uint8>(255);
+        sf::Uint8 green = static_cast<sf::Uint8>(255 * (1.0f - redIntensity * 0.5f));  // Reducir verde
+        sf::Uint8 blue = static_cast<sf::Uint8>(255 * (1.0f - redIntensity * 0.8f));   // Reducir azul más
+        backgroundSprite.setColor(sf::Color(red, green, blue));
+        
+        window.draw(backgroundSprite);
+    } else if (state == GameState::GameOver) {
+        backgroundSprite.setTexture(menuBackgroundTexture);  // Usar la misma textura del menú
+        backgroundSprite.setColor(sf::Color::White);  // Sin tinte
+        // Escalar dinámicamente
+        if (menuBackgroundTexture.getSize().x > 0) {
+            float scaleX = static_cast<float>(window.getSize().x) / menuBackgroundTexture.getSize().x;
+            float scaleY = static_cast<float>(window.getSize().y) / menuBackgroundTexture.getSize().y;
+            backgroundSprite.setScale(scaleX, scaleY);
+        }
+        window.draw(backgroundSprite);
+        
+        // Mostrar efecto Matrix si está activado
+        if (showMatrixEffect) {
+            renderMatrixEffect();
+        }
+    }
 
     if (state == GameState::Menu) {
         renderMenu();
@@ -465,9 +703,21 @@ void Game::render() {
         window.draw(paddle);
         window.draw(ball);
         
-        // Actualizar y dibujar HUD
+        // Actualizar y dibujar HUD (parte superior centro, horizontal)
         livesText.setString("Vidas: " + std::to_string(lives));
         scoreText.setString("Puntos: " + std::to_string(score));
+        
+        // Posicionar horizontalmente en la parte superior centro
+        sf::FloatRect livesRect = livesText.getLocalBounds();
+        sf::FloatRect scoreRect = scoreText.getLocalBounds();
+        
+        // Calcular ancho total de ambos textos con separación
+        float totalWidth = livesRect.width + scoreRect.width + hudSeparation;
+        float startX = (window.getSize().x - totalWidth) / 2.0f; // Centrar horizontalmente
+        
+        livesText.setPosition(startX, hudY); // Vidas a la izquierda
+        scoreText.setPosition(startX + livesRect.width + hudSeparation, hudY); // Puntos a la derecha
+        
         window.draw(livesText);
         window.draw(scoreText);
     } else if (state == GameState::GameOver) {
@@ -478,42 +728,88 @@ void Game::render() {
 }
 
 void Game::renderMenu() {
-    // Si no se pudo cargar la fuente, dibujar menú simple con formas
-    if (font.getInfo().family.empty()) {
-        // Crear un rectángulo para el título
-        sf::RectangleShape titleBg(sf::Vector2f(400, 80));
-        titleBg.setPosition(300, 250);
-        titleBg.setFillColor(sf::Color(100, 50, 150));
-        titleBg.setOutlineColor(sf::Color::White);
-        titleBg.setOutlineThickness(3);
-        window.draw(titleBg);
-        
-        // Crear un rectángulo para las instrucciones
-        sf::RectangleShape instructBg(sf::Vector2f(500, 100));
-        instructBg.setPosition(250, 400);
-        instructBg.setFillColor(sf::Color(50, 50, 100));
-        instructBg.setOutlineColor(sf::Color::Yellow);
-        instructBg.setOutlineThickness(2);
-        window.draw(instructBg);
-        
-        // Texto simple (puede no verse bien pero al menos será visible)
-        sf::Text simpleTitle("ARKANOID", font, 48);
-        simpleTitle.setPosition(350, 270);
-        simpleTitle.setFillColor(sf::Color::White);
-        window.draw(simpleTitle);
-        
-        sf::Text simpleInst("ESPACIO = Jugar    ESC = Salir", font, 20);
-        simpleInst.setPosition(280, 430);
-        simpleInst.setFillColor(sf::Color::Yellow);
-        window.draw(simpleInst);
-    } else {
-        // Si se cargó la fuente, usar el menú normal
-        window.draw(menuText);
-        window.draw(instructionText);
+    // ===============================================
+    // CONSTANTES DE POSICIÓN - MENÚ TERMINAL
+    // ===============================================
+    
+    // Posiciones del menú terminal
+    const float terminalPromptY = 150.f;
+    const float progressStartY = 320.f;
+    
+    // Tamaños de fuente
+    const int terminalFontSize = 16;
+    const int progressFontSize = 14;
+    
+    // Dibujar menú tipo terminal
+    window.draw(titleCommand);
+    window.draw(terminalPrompt);
+    
+    // Dibujar input actual del usuario
+    sf::Text currentInputText;
+    currentInputText.setFont(font);
+    currentInputText.setString(currentInput);
+    currentInputText.setCharacterSize(terminalFontSize);
+    currentInputText.setFillColor(sf::Color::White);
+    currentInputText.setPosition(terminalPrompt.getPosition().x + terminalPrompt.getLocalBounds().width, terminalPromptY);
+    window.draw(currentInputText);
+    
+    // Cursor parpadeante
+    static sf::Clock cursorClock;
+    if (cursorClock.getElapsedTime().asSeconds() > 0.5f) {
+        cursorClock.restart();
     }
+    if (cursorClock.getElapsedTime().asSeconds() < 0.25f) {
+        sf::Text cursor;
+        cursor.setFont(font);
+        cursor.setString("_");
+        cursor.setCharacterSize(16);
+        cursor.setFillColor(sf::Color::Green);
+        cursor.setPosition(currentInputText.getPosition().x + currentInputText.getLocalBounds().width, 150);
+        window.draw(cursor);
+    }
+    
+    // Dibujar comandos disponibles con progreso
+    window.draw(playCommand);
+    window.draw(exitCommand);
+    
+    // Mostrar progreso visual de "PLAY"
+    std::string playDisplay = "PLAY: ";
+    for (size_t i = 0; i < targetPlay.length(); ++i) {
+        if (playProgress[i]) {
+            playDisplay += targetPlay[i];
+        } else {
+            playDisplay += "_";
+        }
+    }
+    sf::Text playProgressText;
+    playProgressText.setFont(font);
+    playProgressText.setString(playDisplay);
+    playProgressText.setCharacterSize(progressFontSize);
+    playProgressText.setFillColor(sf::Color::Yellow);
+    playProgressText.setPosition(50, progressStartY);
+    window.draw(playProgressText);
+    
+    // Mostrar progreso visual de "EXIT"
+    std::string exitDisplay = "EXIT: ";
+    for (size_t i = 0; i < targetExit.length(); ++i) {
+        if (exitProgress[i]) {
+            exitDisplay += targetExit[i];
+        } else {
+            exitDisplay += "_";
+        }
+    }
+    sf::Text exitProgressText;
+    exitProgressText.setFont(font);
+    exitProgressText.setString(exitDisplay);
+    exitProgressText.setCharacterSize(progressFontSize);
+    exitProgressText.setFillColor(sf::Color::Red);
+    exitProgressText.setPosition(50, 350);
+    window.draw(exitProgressText);
 }
 
 void Game::resetGame() {
+    // Reiniciar nivel
+    currentLevel = 1;
     // Recrear nivel
     initLevel();
     
@@ -534,6 +830,8 @@ void Game::loseLife() {
         state = GameState::GameOver;
         backgroundMusic.stop();    // Parar música de fondo
         gameOverSound.play();      // Reproducir sonido de game over
+        showMatrixEffect = true;   // Activar efecto de cascada
+        initMatrixEffect();        // Reinicializar columnas
         finalScoreText.setString("Puntuacion Final: " + std::to_string(score) + "\nPresiona ESPACIO para continuar");
         
         // Recentrar el texto de puntuación final
@@ -548,7 +846,335 @@ void Game::loseLife() {
 }
 
 void Game::renderGameOver() {
-    window.draw(gameOverText);
-    window.draw(finalScoreText);
+    // ===============================================
+    // CONSTANTES DE POSICIÓN - GAME OVER
+    // ===============================================
+    
+    // Posiciones de Game Over
+    const float gameOverTitleY = 135.f;
+    const float gameOverScoreY = 160.f;
+    const float gameOverPromptY = 220.f;
+    const float gameOverProgressY = 380.f;
+    
+    // Tamaños de fuente
+    const int systemCrashFontSize = 24;
+    const int crashScoreFontSize = 16;
+    const int terminalFontSize = 16;
+    const int progressFontSize = 14;
+    
+    // Dibujar título de vaalio madres
+    sf::Text systemCrash;
+    systemCrash.setFont(font);
+    systemCrash.setString(">>> SYSTEM CRASHED <<<");
+    systemCrash.setCharacterSize(systemCrashFontSize);
+    systemCrash.setFillColor(sf::Color::Red);
+    sf::FloatRect crashRect = systemCrash.getLocalBounds();
+    systemCrash.setOrigin(crashRect.left + crashRect.width/2.0f, crashRect.top + crashRect.height/2.0f);
+    systemCrash.setPosition(window.getSize().x / 2.0f, gameOverTitleY);
+    window.draw(systemCrash);
+    
+    // Dibujar puntuación final
+    sf::Text crashScore;
+    crashScore.setFont(font);
+    crashScore.setString("Puntuacion Final: " + std::to_string(score));
+    crashScore.setCharacterSize(crashScoreFontSize);
+    crashScore.setFillColor(sf::Color::Yellow);
+    sf::FloatRect crashScoreRect = crashScore.getLocalBounds();
+    crashScore.setOrigin(crashScoreRect.left + crashScoreRect.width/2.0f, crashScoreRect.top + crashScoreRect.height/2.0f);
+    crashScore.setPosition(window.getSize().x / 2.0f, gameOverScoreY);
+    window.draw(crashScore);
+    
+    // Dibujar menú tipo terminal para game over
+    window.draw(gameOverPrompt);
+    
+    // Dibujar input actual del usuario
+    sf::Text currentGameOverInputText;
+    currentGameOverInputText.setFont(font);
+    currentGameOverInputText.setString(currentGameOverInput);
+    currentGameOverInputText.setCharacterSize(16);
+    currentGameOverInputText.setFillColor(sf::Color::White);
+    currentGameOverInputText.setPosition(gameOverPrompt.getPosition().x + gameOverPrompt.getLocalBounds().width, gameOverPromptY);
+    window.draw(currentGameOverInputText);
+    
+    // Cursor parpadeante
+    static sf::Clock gameOverCursorClock;
+    if (gameOverCursorClock.getElapsedTime().asSeconds() > 0.5f) {
+        gameOverCursorClock.restart();
+    }
+    if (gameOverCursorClock.getElapsedTime().asSeconds() < 0.25f) {
+        sf::Text cursor;
+        cursor.setFont(font);
+        cursor.setString("_");
+        cursor.setCharacterSize(16);
+        cursor.setFillColor(sf::Color::Red);
+        cursor.setPosition(currentGameOverInputText.getPosition().x + currentGameOverInputText.getLocalBounds().width, gameOverPromptY);
+        window.draw(cursor);
+    }
+    
+    // Dibujar comandos disponibles
+    window.draw(rebootCommand);
+    window.draw(gameOverExitCommand);
+    
+    // Mostrar progreso visual de "REBOOT"
+    std::string rebootDisplay = "REBOOT: ";
+    for (size_t i = 0; i < targetReboot.length(); ++i) {
+        if (rebootProgress[i]) {
+            rebootDisplay += targetReboot[i];
+        } else {
+            rebootDisplay += "_";
+        }
+    }
+    sf::Text rebootProgressText;
+    rebootProgressText.setFont(font);
+    rebootProgressText.setString(rebootDisplay);
+    rebootProgressText.setCharacterSize(progressFontSize);
+    rebootProgressText.setFillColor(sf::Color::Green);
+    rebootProgressText.setPosition(50, gameOverProgressY);
+    window.draw(rebootProgressText);
+    
+    // Mostrar progreso visual de "EXIT"
+    std::string gameOverExitDisplay = "EXIT: ";
+    for (size_t i = 0; i < targetExit.length(); ++i) {
+        if (gameOverExitProgress[i]) {
+            gameOverExitDisplay += targetExit[i];
+        } else {
+            gameOverExitDisplay += "_";
+        }
+    }
+    sf::Text gameOverExitProgressText;
+    gameOverExitProgressText.setFont(font);
+    gameOverExitProgressText.setString(gameOverExitDisplay);
+    gameOverExitProgressText.setCharacterSize(progressFontSize);
+    gameOverExitProgressText.setFillColor(sf::Color::Red);
+    gameOverExitProgressText.setPosition(50, 400);
+    window.draw(gameOverExitProgressText);
+}
+
+// Inicializar efecto Matrix
+void Game::initMatrixEffect() {
+    // ===============================================
+    // CONFIGURACIÓN DEL EFECTO MATRIX 
+    // ===============================================
+    
+    // Configuración de densidad y apariencia
+    const int columnSpacing = 35;           // Mayor separación entre columnas (era 20)
+    const int minLength = 5;               // Menos caracteres mínimo (era 10)
+    const int maxLength = 12;              // Menos caracteres máximo (era 30)
+    const float minSpeed = 30.0f;          // Velocidad más lenta
+    const float maxSpeed = 80.0f;          // Velocidad máxima más lenta (era 150)
+    
+    matrixColumns.clear();
+    int numColumns = window.getSize().x / columnSpacing; // Menos columnas
+    
+    for (int i = 0; i < numColumns; ++i) {
+        MatrixColumn column;
+        column.x = static_cast<float>(i * columnSpacing);
+        column.y = static_cast<float>(std::rand() % window.getSize().y);
+        column.speed = minSpeed + (std::rand() % static_cast<int>(maxSpeed - minSpeed));
+        
+        // Crear cadena más corta de caracteres aleatorios
+        column.letters = "";
+        int length = minLength + (std::rand() % (maxLength - minLength)); // Cadenas más cortas
+        for (int j = 0; j < length; ++j) {
+            char c;
+            int type = std::rand() % 3;
+            if (type == 0) c = '0' + (std::rand() % 10);      // Números 0-9
+            else if (type == 1) c = 'A' + (std::rand() % 26); // Letras A-Z
+            else c = 'a' + (std::rand() % 26);                // Letras a-z
+            column.letters += c;
+        }
+        
+        // Color verde Matrix con variación
+        int greenIntensity = 100 + (std::rand() % 156); // Verde entre 100-255
+        column.color = sf::Color(0, greenIntensity, 0);
+        
+        matrixColumns.push_back(column);
+    }
+}
+
+// Actualizar efecto Matrix
+void Game::updateMatrixEffect() {
+    float dt = matrixClock.restart().asSeconds();
+    
+    for (auto& column : matrixColumns) {
+        column.y += column.speed * dt;
+        
+        // Si la columna sale de la pantalla, reiniciarla arriba
+        if (column.y > window.getSize().y + 100) {
+            column.y = -static_cast<float>(column.letters.length() * 15);
+            column.speed = 50.0f + (std::rand() % 100);
+            
+            // Cambiar color ocasionalmente
+            if (std::rand() % 10 == 0) {
+                int greenIntensity = 100 + (std::rand() % 156);
+                column.color = sf::Color(0, greenIntensity, 0);
+            }
+        }
+    }
+}
+
+// Renderizar efecto Matrix
+void Game::renderMatrixEffect() {
+    // ===============================================
+    // CONSTANTES DEL EFECTO MATRIX - MODIFICAR AQUÍ
+    // ===============================================
+    
+    // Configuración de apariencia
+    const int matrixFontSize = 12;           // Fuente más pequeña (era 14)
+    const float letterSpacing = 20.f;       // Más separación entre letras (era 15)
+    const float baseAlpha = 0.4f;          // Transparencia base (40% opaco)
+    const float fadeMultiplier = 0.6f;     // Factor de desvanecimiento más suave
+    
+    for (const auto& column : matrixColumns) {
+        sf::Text matrixText;
+        matrixText.setFont(font);
+        matrixText.setCharacterSize(matrixFontSize);
+        matrixText.setFillColor(column.color);
+        
+        // Dibujar cada letra de la columna (con mayor espaciado)
+        for (size_t i = 0; i < column.letters.length(); ++i) {
+            matrixText.setString(column.letters[i]);
+            float letterY = column.y - (i * letterSpacing); // Espaciado aumentado
+            matrixText.setPosition(column.x, letterY);
+            
+            // Solo dibujar si está dentro de la pantalla
+            if (letterY >= -25 && letterY <= window.getSize().y) {
+                // Efecto de desvanecimiento más suave y transparente
+                float fadeRatio = i / static_cast<float>(column.letters.length());
+                sf::Uint8 alpha = static_cast<sf::Uint8>(255 * baseAlpha * (1.0f - (fadeRatio * fadeMultiplier)));
+                sf::Color fadeColor = column.color;
+                fadeColor.a = alpha;
+                matrixText.setFillColor(fadeColor);
+                
+                window.draw(matrixText);
+            }
+        }
+    }
+}
+
+// Procesar entrada del menú terminal
+void Game::processTerminalInput(char c) {
+    currentInput += c;
+    
+    // Verificar si la letra pertenece a "play"
+    for (size_t i = 0; i < targetPlay.length(); ++i) {
+        if (targetPlay[i] == c && !playProgress[i]) {
+            playProgress[i] = true;
+            break;
+        }
+    }
+    
+    // Verificar si la letra pertenece a "exit"
+    for (size_t i = 0; i < targetExit.length(); ++i) {
+        if (targetExit[i] == c && !exitProgress[i]) {
+            exitProgress[i] = true;
+            break;
+        }
+    }
+    
+    // Verificar si "play" está completo
+    bool playComplete = true;
+    for (bool progress : playProgress) {
+        if (!progress) {
+            playComplete = false;
+            break;
+        }
+    }
+    
+    // Verificar si "exit" está completo
+    bool exitComplete = true;
+    for (bool progress : exitProgress) {
+        if (!progress) {
+            exitComplete = false;
+            break;
+        }
+    }
+    
+    // Ejecutar comando si está completo
+    if (playComplete) {
+        // Reiniciar progreso para próxima vez
+        playProgress = {false, false, false, false};
+        exitProgress = {false, false, false, false};
+        currentInput = "";
+        
+        // Iniciar juego
+        state = GameState::Playing;
+        resetGame();
+        menuMusic.stop();
+        backgroundMusic.play();
+    }
+    else if (exitComplete) {
+        // Salir del juego
+        menuMusic.stop();
+        backgroundMusic.stop();
+        window.close();
+    }
+}
+
+// Actualizar display del terminal
+void Game::updateTerminalDisplay() {
+    // Esta función se puede usar para efectos adicionales si es necesario
+    // Por ahora el renderizado se maneja directamente en renderMenu()
+}
+
+// Procesar entrada del menú de game over
+void Game::processGameOverInput(char c) {
+    currentGameOverInput += c;
+    
+    // Verificar si la letra pertenece a "reboot"
+    for (size_t i = 0; i < targetReboot.length(); ++i) {
+        if (targetReboot[i] == c && !rebootProgress[i]) {
+            rebootProgress[i] = true;
+            break;
+        }
+    }
+    
+    // Verificar si la letra pertenece a "exit"
+    for (size_t i = 0; i < targetExit.length(); ++i) {
+        if (targetExit[i] == c && !gameOverExitProgress[i]) {
+            gameOverExitProgress[i] = true;
+            break;
+        }
+    }
+    
+    // Verificar si "reboot" está completo
+    bool rebootComplete = true;
+    for (bool progress : rebootProgress) {
+        if (!progress) {
+            rebootComplete = false;
+            break;
+        }
+    }
+    
+    // Verificar si "exit" está completo
+    bool gameOverExitComplete = true;
+    for (bool progress : gameOverExitProgress) {
+        if (!progress) {
+            gameOverExitComplete = false;
+            break;
+        }
+    }
+    
+    // Ejecutar comando si está completo
+    if (rebootComplete) {
+        // Reiniciar progreso para próxima vez
+        rebootProgress = {false, false, false, false, false, false};
+        gameOverExitProgress = {false, false, false, false};
+        currentGameOverInput = "";
+        
+        // Reiniciar juego (volver a jugar)
+        state = GameState::Playing;
+        lives = 3;
+        score = 0;
+        showMatrixEffect = false;
+        resetGame();
+        backgroundMusic.play();
+    }
+    else if (gameOverExitComplete) {
+        // Salir del juego
+        menuMusic.stop();
+        backgroundMusic.stop();
+        window.close();
+    }
 }
 

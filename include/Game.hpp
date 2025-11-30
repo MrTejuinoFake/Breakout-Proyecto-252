@@ -27,6 +27,12 @@ private:
     void renderGameOver();
     void resetGame();
     void loseLife();
+    void initMatrixEffect();    // Inicializar efecto de cascada
+    void updateMatrixEffect();  // Actualizar cascada
+    void renderMatrixEffect();  // Dibujar cascada
+    void processTerminalInput(char c);     // Procesar entrada del menú terminal
+    void processGameOverInput(char c);     // Procesar entrada del menú de game over
+    void updateTerminalDisplay();          // Actualizar display del terminal
 
     // Nueva función para crear el nivel
     void initLevel(); 
@@ -42,6 +48,7 @@ private:
     std::vector<Brick> bricks; 
     sf::Texture brickTextures[5];  // Array para múltiples texturas
     sf::Texture blockTexture;      // Textura principal
+    sf::Texture yellowBlockTexture; // Textura específica para bloques amarillos (velocidad)
     
     // Paddle (base) y pelota
     Paddle paddle;
@@ -49,6 +56,46 @@ private:
     
     // Reloj para delta time
     sf::Clock clock;
+    
+    // Sistema de fondos estáticos
+    sf::Texture menuBackgroundTexture;     // Fondo del menú
+    sf::Texture gameBackgroundTexture;     // Fondo base del juego (azul)
+    sf::Texture gameOverBackgroundTexture; // Fondo de game over
+    sf::Image windowIcon;                  // Icono de la ventana
+    sf::Sprite backgroundSprite;
+    int currentLevel;                      // Nivel actual para progresión de color
+    
+    // Sistema de cascada de letras (efecto Matrix)
+    struct MatrixColumn {
+        float x;
+        float y;
+        float speed;
+        std::string letters;
+        sf::Color color;
+    };
+    std::vector<MatrixColumn> matrixColumns;
+    bool showMatrixEffect;
+    sf::Clock matrixClock;
+    
+    // Sistema de menú interactivo tipo terminal
+    std::string currentInput;          // Lo que ha escrito el usuario
+    std::string targetPlay;            // "play"
+    std::string targetExit;            // "exit"
+    std::vector<bool> playProgress;    // Progreso de "play" (p, l, a, y)
+    std::vector<bool> exitProgress;    // Progreso de "exit" (e, x, i, t)
+    sf::Text terminalPrompt;           // "C:\\ARKANOID> "
+    sf::Text playCommand;
+    sf::Text exitCommand;
+    sf::Text titleCommand;
+    
+    // Menú terminal de Game Over
+    std::string currentGameOverInput;
+    std::string targetReboot;          // "reboot"
+    std::vector<bool> rebootProgress;  // Progreso de "reboot" (r, e, b, o, o, t)
+    std::vector<bool> gameOverExitProgress; // Progreso de "exit" para game over
+    sf::Text gameOverPrompt;
+    sf::Text rebootCommand;
+    sf::Text gameOverExitCommand;
     
     // Fuentes y textos
     sf::Font font;
