@@ -113,4 +113,17 @@ private:
     sf::Sound bounceSound;
     sf::SoundBuffer gameOverBuffer; // Sonido de game over
     sf::Sound gameOverSound;
+
+    // Sistema de control de volumen
+    float masterVolume;           // Volumen maestro (0.0f - 1.0f)
+    std::string volumeInput;      // Input del usuario para volumen (00-99)
+    bool volumeInputMode;         // Si está en modo de cambio de volumen
+    float baseVolumeMusic;        // Volúmenes base individuales
+    float baseVolumeEffects;
+    float baseVolumeMenu;
+    float baseVolumeGameOver;
+
+    // Funciones de volumen
+    void updateMasterVolume();           // Actualizar todos los volúmenes con el maestro
+    void processVolumeInput(char c);     // Procesar input de volumen
 };

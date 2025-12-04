@@ -169,7 +169,7 @@ void Game::initLevel() {
 
 
 // Constructor: Inicializa la ventana
-Game::Game() : state(GameState::Menu), lives(3), score(0) {
+Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), volumeInputMode(false) {
     // ===============================================
     // CONSTANTES DE TEXTO Y POSICIONES 
     // ===============================================
@@ -282,14 +282,16 @@ Game::Game() : state(GameState::Menu), lives(3), score(0) {
         std::cout << "No se pudo cargar bounce.mp3" << std::endl;
     } else {
         bounceSound.setBuffer(bounceBuffer);
-        bounceSound.setVolume(70);  
+        baseVolumeEffects = 70.0f;
+        bounceSound.setVolume(baseVolumeEffects * masterVolume);  
     }
     
     if (!backgroundMusic.openFromFile("assets/music/background.mp3")) {
         std::cout << "No se pudo cargar background.mp3" << std::endl;
     } else {
         backgroundMusic.setLoop(true);
-        backgroundMusic.setVolume(30); 
+        baseVolumeMusic = 30.0f;
+        backgroundMusic.setVolume(baseVolumeMusic * masterVolume); 
     }
     
     // Cargar música del menú
@@ -297,14 +299,16 @@ Game::Game() : state(GameState::Menu), lives(3), score(0) {
        // std::cout << "No se pudo cargar menu.mp3" << std::endl;
     } else {
         menuMusic.setLoop(true);
-        menuMusic.setVolume(40);  
+        baseVolumeMenu = 40.0f;
+        menuMusic.setVolume(baseVolumeMenu * masterVolume);  
     }
     
     // Cargar sonido de game over
     if (!gameOverBuffer.loadFromFile("assets/music/gameover.mp3")) {
     } else {
         gameOverSound.setBuffer(gameOverBuffer);
-        gameOverSound.setVolume(50);  
+        baseVolumeGameOver = 50.0f;
+        gameOverSound.setVolume(baseVolumeGameOver * masterVolume);  
     }
 
 
@@ -338,6 +342,10 @@ Game::Game() : state(GameState::Menu), lives(3), score(0) {
  
     // Para que no se vea borroso si es pixel art
     blockTexture.setSmooth(true);
+    
+    // Inicializar volumen maestro
+    volumeInput = "50"; // Volumen inicial al 50%
+    updateMasterVolume();
     initLevel(); 
 
     // Inicializar paddle en la parte inferior
@@ -455,7 +463,11 @@ void Game::processEvents() {
         if (event.type == sf::Event::TextEntered && state == GameState::Menu) {
             if (event.text.unicode >= 32 && event.text.unicode < 128) {
                 char c = static_cast<char>(event.text.unicode);
-                processTerminalInput(std::tolower(c));
+                if (volumeInputMode) {
+                    processVolumeInput(c);
+                } else {
+                    processTerminalInput(std::tolower(c));
+                }
             }
         }
         
@@ -463,7 +475,19 @@ void Game::processEvents() {
         if (event.type == sf::Event::TextEntered && state == GameState::GameOver) {
             if (event.text.unicode >= 32 && event.text.unicode < 128) {
                 char c = static_cast<char>(event.text.unicode);
-                processGameOverInput(std::tolower(c));
+                if (volumeInputMode) {
+                    processVolumeInput(c);
+                } else {
+                    processGameOverInput(std::tolower(c));
+                }
+            }
+        }
+        
+        // Capturar entrada de texto en modo Playing para volumen
+        if (event.type == sf::Event::TextEntered && state == GameState::Playing && volumeInputMode) {
+            if (event.text.unicode >= 32 && event.text.unicode < 128) {
+                char c = static_cast<char>(event.text.unicode);
+                processVolumeInput(c);
             }
         }
         
@@ -471,32 +495,125 @@ void Game::processEvents() {
             if (state == GameState::Menu) {
                 // Solo permitir ESC para salir en el menú
                 if (event.key.code == sf::Keyboard::Escape) {
-                    menuMusic.stop();
-                    backgroundMusic.stop();
-                    window.close();
+                    if (volumeInputMode) {
+                        volumeInputMode = false;
+                        volumeInput.clear();
+                        std::cout << "Modo volumen cancelado" << std::endl;
+                    } else {
+                        menuMusic.stop();
+                        backgroundMusic.stop();
+                        window.close();
+                    }
+                }
+                // Tecla V para activar modo volumen
+                else if (event.key.code == sf::Keyboard::V && !volumeInputMode) {
+                    volumeInputMode = true;
+                    volumeInput.clear();
+                    std::cout << "MODO VOLUMEN: Ingresa 00-99 y presiona Enter (ESC para cancelar)" << std::endl;
+                }
+                // Enter para aplicar volumen
+                else if (event.key.code == sf::Keyboard::Enter && volumeInputMode) {
+                    if (volumeInput.length() >= 1) {
+                        int volume = std::stoi(volumeInput);
+                        if (volume >= 0 && volume <= 99) {
+                            masterVolume = volume / 99.0f; // Convertir 0-99 a 0.0-1.0
+                            updateMasterVolume();
+                            std::cout << "Volumen establecido a: " << volume << "%" << std::endl;
+                        }
+                    }
+                    volumeInput.clear();
+                    volumeInputMode = false;
                 }
                 // Backspace para borrar
-                if (event.key.code == sf::Keyboard::BackSpace && !currentInput.empty()) {
-                    currentInput.pop_back();
-                    updateTerminalDisplay();
+                else if (event.key.code == sf::Keyboard::BackSpace) {
+                    if (volumeInputMode && !volumeInput.empty()) {
+                        volumeInput.pop_back();
+                    } else if (!currentInput.empty()) {
+                        currentInput.pop_back();
+                        updateTerminalDisplay();
+                    }
                 }
             }
             else if (state == GameState::GameOver) {
-                // Solo permitir ESC para salir en game over
+                // ESC para salir o cancelar volumen
                 if (event.key.code == sf::Keyboard::Escape) {
-                    menuMusic.stop();
-                    backgroundMusic.stop();
-                    window.close();
+                    if (volumeInputMode) {
+                        volumeInputMode = false;
+                        volumeInput.clear();
+                        std::cout << "Modo volumen cancelado" << std::endl;
+                    } else {
+                        menuMusic.stop();
+                        backgroundMusic.stop();
+                        window.close();
+                    }
                 }
-                // Backspace para borrar en game over
-                if (event.key.code == sf::Keyboard::BackSpace && !currentGameOverInput.empty()) {
-                    currentGameOverInput.pop_back();
+                // Enter para aplicar volumen
+                else if (event.key.code == sf::Keyboard::Enter && volumeInputMode) {
+                    if (volumeInput.length() >= 1) {
+                        int volume = std::stoi(volumeInput);
+                        if (volume >= 0 && volume <= 99) {
+                            masterVolume = volume / 99.0f;
+                            updateMasterVolume();
+                            std::cout << "Volumen establecido a: " << volume << "%" << std::endl;
+                        }
+                    }
+                    volumeInput.clear();
+                    volumeInputMode = false;
+                }
+                // Tecla V para activar modo volumen
+                else if (event.key.code == sf::Keyboard::V && !volumeInputMode) {
+                    volumeInputMode = true;
+                    volumeInput.clear();
+                    std::cout << "MODO VOLUMEN: Ingresa 00-99 y presiona Enter (ESC para cancelar)" << std::endl;
+                }
+                // Backspace para borrar
+                else if (event.key.code == sf::Keyboard::BackSpace) {
+                    if (volumeInputMode && !volumeInput.empty()) {
+                        volumeInput.pop_back();
+                    } else if (!currentGameOverInput.empty()) {
+                        currentGameOverInput.pop_back();
+                    }
                 }
             }
             else if (state == GameState::Playing) {
                 if (event.key.code == sf::Keyboard::Space && ball.isStuck) {
-                    ball.isStuck = false;
                     ball.velocity = sf::Vector2f(0.f, -350.f); // Lanzar derecha hacia arriba
+                    ball.isStuck = false;
+                }
+                // ESC para menú o cancelar volumen
+                else if (event.key.code == sf::Keyboard::Escape) {
+                    if (volumeInputMode) {
+                        volumeInputMode = false;
+                        volumeInput.clear();
+                        std::cout << "Modo volumen cancelado" << std::endl;
+                    } else {
+                        state = GameState::Menu;
+                        backgroundMusic.stop();
+                        menuMusic.play();
+                    }
+                }
+                // Enter para aplicar volumen
+                else if (event.key.code == sf::Keyboard::Enter && volumeInputMode) {
+                    if (volumeInput.length() >= 1) {
+                        int volume = std::stoi(volumeInput);
+                        if (volume >= 0 && volume <= 99) {
+                            masterVolume = volume / 99.0f;
+                            updateMasterVolume();
+                            std::cout << "Volumen establecido a: " << volume << "%" << std::endl;
+                        }
+                    }
+                    volumeInput.clear();
+                    volumeInputMode = false;
+                }
+                // Tecla V para activar modo volumen
+                else if (event.key.code == sf::Keyboard::V && !volumeInputMode) {
+                    volumeInputMode = true;
+                    volumeInput.clear();
+                    std::cout << "MODO VOLUMEN: Ingresa 00-99 y presiona Enter (ESC para cancelar)" << std::endl;
+                }
+                // Backspace para borrar
+                else if (event.key.code == sf::Keyboard::BackSpace && volumeInputMode && !volumeInput.empty()) {
+                    volumeInput.pop_back();
                 }
             }
         }
@@ -720,6 +837,26 @@ void Game::render() {
         
         window.draw(livesText);
         window.draw(scoreText);
+        
+        // Display de volumen a la derecha del score
+        sf::Text volumeHUD;
+        volumeHUD.setFont(font);
+        volumeHUD.setCharacterSize(14); // Mismo tamaño que el HUD
+        
+        if (volumeInputMode) {
+            std::string volDisplay = "VOL:[" + volumeInput + "_]";
+            volumeHUD.setString(volDisplay);
+            volumeHUD.setFillColor(sf::Color::Blue); // Azul cuando es modificable
+        } else {
+            int currentVol = static_cast<int>(masterVolume * 99);
+            std::string volDisplay = "VOL:" + std::to_string(currentVol) + "%";
+            volumeHUD.setString(volDisplay);
+            volumeHUD.setFillColor(sf::Color::Yellow); // Amarillo fijo
+        }
+        
+        sf::FloatRect scoreRect2 = scoreText.getLocalBounds();
+        volumeHUD.setPosition(startX + livesRect.width + hudSeparation + scoreRect2.width + 20, hudY);
+        window.draw(volumeHUD);
     } else if (state == GameState::GameOver) {
         renderGameOver();
     }
@@ -805,6 +942,24 @@ void Game::renderMenu() {
     exitProgressText.setFillColor(sf::Color::Red);
     exitProgressText.setPosition(50, 350);
     window.draw(exitProgressText);
+    
+    // Mostrar control de volumen
+    sf::Text volumeInfo;
+    volumeInfo.setFont(font);
+    volumeInfo.setCharacterSize(12);
+    volumeInfo.setFillColor(sf::Color::Cyan);
+    volumeInfo.setPosition(50, 450);
+    
+    if (volumeInputMode) {
+        std::string volDisplay = "VOLUMEN: [" + volumeInput + "_] (00-99, Enter para aplicar)";
+        volumeInfo.setString(volDisplay);
+        volumeInfo.setFillColor(sf::Color::Yellow);
+    } else {
+        int currentVol = static_cast<int>(masterVolume * 99);
+        std::string volDisplay = "VOL: " + std::to_string(currentVol) + "% (Presiona V para cambiar)";
+        volumeInfo.setString(volDisplay);
+    }
+    window.draw(volumeInfo);
 }
 
 void Game::resetGame() {
@@ -932,6 +1087,24 @@ void Game::renderGameOver() {
     rebootProgressText.setPosition(50, gameOverProgressY);
     window.draw(rebootProgressText);
     
+    // Display de volumen en Game Over (abajo de las opciones)
+    sf::Text volumeGameOver;
+    volumeGameOver.setFont(font);
+    volumeGameOver.setCharacterSize(12);
+    volumeGameOver.setPosition(50, gameOverProgressY + 60);
+    
+    if (volumeInputMode) {
+        std::string volDisplay = "VOLUMEN: [" + volumeInput + "_] (00-99, Enter para aplicar)";
+        volumeGameOver.setString(volDisplay);
+        volumeGameOver.setFillColor(sf::Color::Yellow);
+    } else {
+        int currentVol = static_cast<int>(masterVolume * 99);
+        std::string volDisplay = "VOL: " + std::to_string(currentVol) + "% (Presiona V para cambiar)";
+        volumeGameOver.setString(volDisplay);
+        volumeGameOver.setFillColor(sf::Color::Cyan);
+    }
+    window.draw(volumeGameOver);
+    
     // Mostrar progreso visual de "EXIT"
     std::string gameOverExitDisplay = "EXIT: ";
     for (size_t i = 0; i < targetExit.length(); ++i) {
@@ -948,6 +1121,26 @@ void Game::renderGameOver() {
     gameOverExitProgressText.setFillColor(sf::Color::Red);
     gameOverExitProgressText.setPosition(50, 400);
     window.draw(gameOverExitProgressText);
+}
+
+// Actualizar volumen maestro
+void Game::updateMasterVolume() {
+    // Aplicar volumen maestro a todos los componentes de audio
+    bounceSound.setVolume(baseVolumeEffects * masterVolume);
+    backgroundMusic.setVolume(baseVolumeMusic * masterVolume);
+    menuMusic.setVolume(baseVolumeMenu * masterVolume);
+    gameOverSound.setVolume(baseVolumeGameOver * masterVolume);
+}
+
+// Procesar input de volumen
+void Game::processVolumeInput(char c) {
+    // Solo procesar números 0-9
+    if (c >= '0' && c <= '9') {
+        if (volumeInput.length() < 2) {
+            volumeInput += c;
+        }
+    }
+    // Enter y ESC se manejan en KeyPressed, no aquí
 }
 
 // Inicializar efecto Matrix
