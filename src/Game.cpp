@@ -25,10 +25,15 @@ void Game::initLevel() {
     const float startX = 8.0f;              // Distancia desde el borde izquierdo
     const float startY = 200.f;             // Distancia desde la parte superior
     
-    // Probabilidades de bloques especiales
-    const int smallBlockChance = 15;        // % probabilidad de bloques pequeños (0-100)
-    const int purpleBlockChance = 10;       // % probabilidad de bloques morados 3 golpes (0-100)  
-    const int redBlockChance = 25;          // % probabilidad de bloques rojos 2 golpes (0-100)
+    // Probabilidades de bloques especiales (escaladas por nivel)
+    int smallBlockChance = 15 + (currentLevel - 1) * 3;     // Más bloques pequeños cada nivel
+    if (smallBlockChance > 40) smallBlockChance = 40;       // Máximo 40%
+    
+    int purpleBlockChance = 10 + (currentLevel - 1) * 5;    // Más bloques de 3 golpes
+    if (purpleBlockChance > 35) purpleBlockChance = 35;     // Máximo 35%
+    
+    int redBlockChance = 25 + (currentLevel - 1) * 2;       // Más bloques de 2 golpes
+    if (redBlockChance > 45) redBlockChance = 45;           // Máximo 45%
     
     // Valores de puntuación
     const int normalBlockPoints = 10;       // Puntos por bloque normal (1 golpe)
@@ -207,6 +212,31 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     const float gameOverCommandsY = 310.f;
     const float gameOverProgressY = 380.f;
     
+    // Inicializar efectos visuales
+    screenShakeOffset = sf::Vector2f(0.f, 0.f);
+    screenShakeDuration = 0.f;
+    screenShakeIntensity = 0.f;
+    paddleRotation = 0.f;
+    targetPaddleRotation = 0.f;
+    
+    // Inicializar sistema de velocidad del paddle
+    hasPaddleSpeedPowerUp = false;
+    isPaddleSpeedActive = false;
+    
+    // Inicializar destello de pelota
+    ballGlow.setRadius(ball.getRadius() + 4.f);
+    ballGlow.setOrigin(ballGlow.getRadius(), ballGlow.getRadius());
+    ballGlow.setFillColor(sf::Color::Transparent);
+    ballGlowIntensity = 0.f;
+    
+    // Inicializar sistema de estelas
+    trailSpawnTimer = 0.f;
+    
+    // Inicializar sistema de música
+    currentBackgroundMusic = nullptr;
+    currentLowLifeMusic = nullptr;
+    isPlayingLowLifeMusic = false;
+    
     std::cout << "--- INICIANDO JUEGO ---" << std::endl;
     window.create(sf::VideoMode(windowWidth, windowHeight), windowTitle, sf::Style::Titlebar | sf::Style::Close);
     window.setFramerateLimit(120);
@@ -286,13 +316,46 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
         bounceSound.setVolume(baseVolumeEffects * masterVolume);  
     }
     
-    if (!backgroundMusic.openFromFile("assets/music/background.mp3")) {
-        std::cout << "No se pudo cargar background.mp3" << std::endl;
-    } else {
-        backgroundMusic.setLoop(true);
-        baseVolumeMusic = 30.0f;
-        backgroundMusic.setVolume(baseVolumeMusic * masterVolume); 
+    // Cargar 7 músicas de fondo normales
+    baseVolumeMusic = 30.0f;
+    for (int i = 1; i <= 7; i++) {
+        sf::Music* track = new sf::Music();
+        std::string filename = "assets/music/background" + std::to_string(i) + ".mp3";
+        if (track->openFromFile(filename)) {
+            track->setLoop(true);
+            track->setVolume(baseVolumeMusic * masterVolume);
+            backgroundMusicTracks.push_back(track);
+            std::cout << "Música " << i << " cargada correctamente" << std::endl;
+        } else {
+            std::cout << "No se pudo cargar " << filename << std::endl;
+            delete track;
+        }
     }
+    
+    // Seleccionar música aleatoria al inicio
+    if (!backgroundMusicTracks.empty()) {
+        currentTrackIndex = std::rand() % backgroundMusicTracks.size();
+        currentBackgroundMusic = backgroundMusicTracks[currentTrackIndex];
+    } else {
+        currentBackgroundMusic = nullptr;
+    }
+    
+    // Cargar músicas de vida baja (1 vida restante)
+    if (!lowLifeMusic1.openFromFile("assets/music/lowlife1.mp3")) {
+        std::cout << "No se pudo cargar lowlife1.mp3" << std::endl;
+    } else {
+        lowLifeMusic1.setLoop(true);
+        lowLifeMusic1.setVolume(baseVolumeMusic * masterVolume);
+    }
+    
+    if (!lowLifeMusic2.openFromFile("assets/music/lowlife2.mp3")) {
+        std::cout << "No se pudo cargar lowlife2.mp3" << std::endl;
+    } else {
+        lowLifeMusic2.setLoop(true);
+        lowLifeMusic2.setVolume(baseVolumeMusic * masterVolume);
+    }
+    
+    isPlayingLowLifeMusic = false;
     
     // Cargar música del menú
     if (!menuMusic.openFromFile("assets/music/menu.mp3")) {
@@ -423,8 +486,14 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     currentInput = "";
     targetPlay = "play";
     targetExit = "exit";
+    targetControls = "controls";
     playProgress = {false, false, false, false}; // p, l, a, y
     exitProgress = {false, false, false, false}; // e, x, i, t
+    controlsProgress = {false, false, false, false, false, false, false, false}; // c, o, n, t, r, o, l, s
+    
+    // Inicializar sistema de menú de controles
+    currentControlsInput = "";
+    returnProgress = {false, false, false, false, false, false}; // r, e, t, u, r, n
     
     // Configurar textos del menú terminal
     terminalPrompt.setFont(font);
@@ -440,16 +509,22 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     titleCommand.setPosition(terminalPromptX, terminalTitleY);
     
     playCommand.setFont(font);
-    playCommand.setString("PLAY - Iniciar juego");
+    playCommand.setString("PLAY - START GAME");
     playCommand.setCharacterSize(commandFontSize);
     playCommand.setFillColor(sf::Color::White);
     playCommand.setPosition(50, commandListY);
     
     exitCommand.setFont(font);
-    exitCommand.setString("EXIT - Salir del programa");
+    exitCommand.setString("EXIT - QUIT GAME");
     exitCommand.setCharacterSize(commandFontSize);
     exitCommand.setFillColor(sf::Color::White);
     exitCommand.setPosition(50, commandListY + 30);
+    
+    controlsCommand.setFont(font);
+    controlsCommand.setString("CONTROLS - VIEW GAME CONTROLS");
+    controlsCommand.setCharacterSize(commandFontSize);
+    controlsCommand.setFillColor(sf::Color::White);
+    controlsCommand.setPosition(50, commandListY + 60);
     
     // Inicializar sistema de menú terminal de game over
     currentGameOverInput = "";
@@ -480,6 +555,11 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
 }
 
 Game::~Game() {
+    // Liberar memoria de las músicas de fondo
+    for (auto* track : backgroundMusicTracks) {
+        delete track;
+    }
+    backgroundMusicTracks.clear();
 }
 
 // Bucle principal (Game Loop)
@@ -530,6 +610,14 @@ void Game::processEvents() {
             }
         }
         
+        // Capturar entrada de texto para el menú de controles
+        if (event.type == sf::Event::TextEntered && state == GameState::Controls) {
+            if (event.text.unicode >= 32 && event.text.unicode < 128) {
+                char c = static_cast<char>(event.text.unicode);
+                processControlsInput(std::tolower(c));
+            }
+        }
+        
         if (event.type == sf::Event::KeyPressed) {
             if (state == GameState::Menu) {
                 // Solo permitir ESC para salir en el menú
@@ -540,7 +628,8 @@ void Game::processEvents() {
                         std::cout << "Modo volumen cancelado" << std::endl;
                     } else {
                         menuMusic.stop();
-                        backgroundMusic.stop();
+                        if (currentBackgroundMusic) currentBackgroundMusic->stop();
+                        if (currentLowLifeMusic) currentLowLifeMusic->stop();
                         window.close();
                     }
                 }
@@ -586,7 +675,8 @@ void Game::processEvents() {
                         std::cout << "Modo volumen cancelado" << std::endl;
                     } else {
                         menuMusic.stop();
-                        backgroundMusic.stop();
+                        if (currentBackgroundMusic) currentBackgroundMusic->stop();
+                        if (currentLowLifeMusic) currentLowLifeMusic->stop();
                         window.close();
                     }
                 }
@@ -622,6 +712,18 @@ void Game::processEvents() {
                     }
                 }
             }
+            else if (state == GameState::Controls) {
+                // ESC para volver al menú
+                if (event.key.code == sf::Keyboard::Escape) {
+                    state = GameState::Menu;
+                    currentControlsInput = "";
+                    returnProgress = {false, false, false, false, false, false};
+                }
+                // Backspace para borrar
+                else if (event.key.code == sf::Keyboard::BackSpace && !currentControlsInput.empty()) {
+                    currentControlsInput.pop_back();
+                }
+            }
             else if (state == GameState::Playing) {
                 if (event.key.code == sf::Keyboard::Space && ball.isStuck) {
                     ball.velocity = sf::Vector2f(0.f, -350.f); // Lanzar derecha hacia arriba
@@ -635,7 +737,9 @@ void Game::processEvents() {
                         std::cout << "Modo volumen cancelado" << std::endl;
                     } else {
                         state = GameState::Menu;
-                        backgroundMusic.stop();
+                        if (currentBackgroundMusic) currentBackgroundMusic->stop();
+                        if (currentLowLifeMusic) currentLowLifeMusic->stop();
+                        isPlayingLowLifeMusic = false;
                         menuMusic.play();
                     }
                 }
@@ -662,6 +766,17 @@ void Game::processEvents() {
                 else if (event.key.code == sf::Keyboard::M) {
                     specialSound.play();
                 }
+                // Tecla S para activar/desactivar velocidad del paddle (solo si tiene el PowerUp y no es nivel 0)
+                else if (event.key.code == sf::Keyboard::S && hasPaddleSpeedPowerUp && currentLevel > 0) {
+                    isPaddleSpeedActive = !isPaddleSpeedActive;
+                    if (isPaddleSpeedActive) {
+                        paddle.speed = originalPaddleSpeed * 1.5f;
+                        paddle.setFillColor(sf::Color(173, 216, 230));  // Azul cielo pastel
+                    } else {
+                        paddle.speed = originalPaddleSpeed;
+                        paddle.setFillColor(sf::Color::White);  // Blanco normal
+                    }
+                }
                 // Backspace para borrar
                 else if (event.key.code == sf::Keyboard::BackSpace && volumeInputMode && !volumeInput.empty()) {
                     volumeInput.pop_back();
@@ -685,12 +800,22 @@ void Game::update() {
     // --- Paddle: mover según teclado ---
     sf::Vector2f paddlePos = paddle.getPosition();
     float halfWidth = paddle.getSize().x / 2.f;
+    
+    // Detectar movimiento y ajustar rotación objetivo
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::Left)) {
         paddle.move(-paddle.speed * dt, 0.f);
-    }
-    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Right)) {
+        targetPaddleRotation = -2.f;  // Inclinar a la izquierda
+    } else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Right)) {
         paddle.move(paddle.speed * dt, 0.f);
+        targetPaddleRotation = 2.f;   // Inclinar a la derecha
+    } else {
+        targetPaddleRotation = 0.f;   // Volver a horizontal
     }
+    
+    // Suavizar rotación (interpolación)
+    paddleRotation += (targetPaddleRotation - paddleRotation) * 12.f * dt;
+    paddle.setRotation(paddleRotation);
+    
     // Clamp paddle dentro de la ventana
     if (paddle.getPosition().x - halfWidth < 0.f) paddle.setPosition(halfWidth, paddle.getPosition().y);
     if (paddle.getPosition().x + halfWidth > window.getSize().x) paddle.setPosition(window.getSize().x - halfWidth, paddle.getPosition().y);
@@ -711,17 +836,23 @@ void Game::update() {
         ball.setPosition(r, pos.y);
         ball.velocity.x = std::abs(ball.velocity.x);
         bounceSound.play();  // Sonido de rebote
+        screenShakeDuration = 0.08f;
+        screenShakeIntensity = 2.5f;
     }
     if (pos.x + r > window.getSize().x) {
         ball.setPosition(static_cast<float>(window.getSize().x) - r, pos.y);
         ball.velocity.x = -std::abs(ball.velocity.x);
         bounceSound.play();  // Sonido de rebote
+        screenShakeDuration = 0.08f;
+        screenShakeIntensity = 2.5f;
     }
     // Colisión con techo
     if (pos.y - r < 0.f) {
         ball.setPosition(pos.x, r);
         ball.velocity.y = std::abs(ball.velocity.y);
         bounceSound.play();  // Sonido de rebote
+        screenShakeDuration = 0.08f;
+        screenShakeIntensity = 2.5f;
     }
     // Si la bola principal cae abajo, perder vida (las extras no importan)
     if (pos.y - r > window.getSize().y) {
@@ -740,11 +871,15 @@ void Game::update() {
             extraBall.setPosition(extraR, extraPos.y);
             extraBall.velocity.x = std::abs(extraBall.velocity.x);
             bounceSound.play();
+            screenShakeDuration = 0.08f;
+            screenShakeIntensity = 2.5f;
         }
         if (extraPos.x + extraR > window.getSize().x) {
             extraBall.setPosition(static_cast<float>(window.getSize().x) - extraR, extraPos.y);
             extraBall.velocity.x = -std::abs(extraBall.velocity.x);
             bounceSound.play();
+            screenShakeDuration = 0.08f;
+            screenShakeIntensity = 2.5f;
         }
         if (extraPos.y - extraR < 0.f) {
             extraBall.setPosition(extraPos.x, extraR);
@@ -771,9 +906,28 @@ void Game::update() {
                 if (brick.hitsRemaining <= 0) {
                     brick.isDestroyed = true;
                     score += brick.pointValue;
+                    createBrickParticles(brick.getPosition(), brick.getFillColor());
                     
                     if (brick.isSmallBlock) {
                         extraBall.velocity *= 1.05f;
+                    }
+                } else {
+                    // Partículas exageradas para ladrillos resistentes (aún tienen golpes)
+                    for (int i = 0; i < 12; i++) {  // Más partículas que normal
+                        Particle p;
+                        p.shape.setSize(sf::Vector2f(4.f, 4.f));  // Más grandes
+                        p.shape.setFillColor(brick.getFillColor());
+                        p.shape.setPosition(brick.getPosition());
+                        
+                        float angle = (std::rand() % 360) * 3.14159f / 180.f;
+                        float speed = 80.f + (std::rand() % 120);  // Más rápidas
+                        p.velocity.x = std::cos(angle) * speed;
+                        p.velocity.y = std::sin(angle) * speed;
+                        
+                        p.lifetime = 0.5f + (std::rand() % 400) / 1000.f;
+                        p.maxLifetime = p.lifetime;
+                        
+                        particles.push_back(p);
                     }
                 }
                 
@@ -815,6 +969,7 @@ void Game::update() {
             if (brick.hitsRemaining <= 0) {
                 brick.isDestroyed = true;
                 score += brick.pointValue;
+                createBrickParticles(brick.getPosition(), brick.getFillColor());
                 
                 // 20% probabilidad de generar PowerUp
                 if (std::rand() % 100 < 20) {
@@ -847,6 +1002,24 @@ void Game::update() {
                     ball.velocity *= 1.05f;
                 }
             } else {
+                // Partículas exageradas para ladrillos resistentes (aún tienen golpes)
+                for (int i = 0; i < 12; i++) {  // Más partículas que normal
+                    Particle p;
+                    p.shape.setSize(sf::Vector2f(4.f, 4.f));  // Más grandes
+                    p.shape.setFillColor(brick.getFillColor());
+                    p.shape.setPosition(brick.getPosition());
+                    
+                    float angle = (std::rand() % 360) * 3.14159f / 180.f;
+                    float speed = 80.f + (std::rand() % 120);  // Más rápidas
+                    p.velocity.x = std::cos(angle) * speed;
+                    p.velocity.y = std::sin(angle) * speed;
+                    
+                    p.lifetime = 0.5f + (std::rand() % 400) / 1000.f;
+                    p.maxLifetime = p.lifetime;
+                    
+                    particles.push_back(p);
+                }
+                
                 // Efecto especial para bloques de 3 golpes: aumentar restitución
                 if (brick.maxHits == 3) {
                     float speedIncrease = 1.02f;  // 2% más velocidad por golpe
@@ -884,7 +1057,24 @@ void Game::update() {
     // Si todos los bloques están destruidos, avanzar al siguiente nivel
     if (allDestroyed && !bricks.empty()) {
         currentLevel++;  // Incrementar nivel
+        
+        // Limpiar PowerUps y bolas extra
+        powerUps.clear();
+        extraBalls.clear();
+        
+        // Reiniciar paddle a tamaño y velocidad original
+        sf::Vector2f originalSize(originalPaddleWidth, paddle.getSize().y);
+        paddle.setSize(originalSize);
+        paddle.setOrigin(originalSize.x / 2.f, originalSize.y / 2.f);
+        paddle.speed = originalPaddleSpeed;
+        paddle.setFillColor(sf::Color::White);  // Color normal
+        
+        // Resetear PowerUp de velocidad
+        hasPaddleSpeedPowerUp = false;
+        isPaddleSpeedActive = false;
+        
         initLevel();     // Recrear todos los bloques
+        
         // Reiniciar bola pegada al paddle
         ball.isStuck = true;
         ball.velocity = sf::Vector2f(0.f, 0.f);
@@ -902,7 +1092,10 @@ void Game::update() {
                 // Aplicar efecto según tipo
                 switch(powerUp.getType()) {
                     case PowerUpType::SpeedPaddle:
-                        paddle.speed *= 1.5f;
+                        hasPaddleSpeedPowerUp = true;
+                        isPaddleSpeedActive = true;  // Activado por defecto al recogerlo
+                        paddle.speed = originalPaddleSpeed * 1.5f;
+                        paddle.setFillColor(sf::Color(173, 216, 230));  // Azul cielo pastel
                         break;
                     case PowerUpType::ExpandPaddle:
                         {
@@ -929,6 +1122,16 @@ void Game::update() {
                     case PowerUpType::ExtraLife:
                         if (lives < maxLives) {
                             lives++;
+                            
+                            // Si estaba en música de vida baja y ahora tiene más de 1 vida, restaurar música normal
+                            if (isPlayingLowLifeMusic && lives > 1) {
+                                if (currentLowLifeMusic) currentLowLifeMusic->stop();
+                                isPlayingLowLifeMusic = false;
+                                
+                                if (currentBackgroundMusic) {
+                                    currentBackgroundMusic->play();
+                                }
+                            }
                         }
                         break;
                 }
@@ -947,6 +1150,25 @@ void Game::update() {
             [](const PowerUp& p) { return !p.isActive(); }),
         powerUps.end()
     );
+    
+    // Actualizar partículas
+    updateParticles(dt);
+    
+    // Actualizar destello de pelota
+    updateBallGlow();
+    
+    // Actualizar estelas de la pelota
+    updateBallTrails(dt);
+    
+    // Actualizar sacudida de pantalla
+    if (screenShakeDuration > 0.f) {
+        screenShakeDuration -= dt;
+        float intensity = screenShakeIntensity * (screenShakeDuration / 0.08f);
+        screenShakeOffset.x = ((std::rand() % 200 - 100) / 100.f) * intensity;
+        screenShakeOffset.y = ((std::rand() % 200 - 100) / 100.f) * intensity;
+    } else {
+        screenShakeOffset = sf::Vector2f(0.f, 0.f);
+    }
 }
 
 // Dibujado
@@ -960,6 +1182,16 @@ void Game::render() {
     const float hudSeparation = 40.f;
     
     window.clear(sf::Color::Black);
+    
+    // Aplicar sacudida de pantalla en Playing
+    if (state == GameState::Playing) {
+        sf::View view = window.getDefaultView();
+        view.setCenter(window.getSize().x / 2.f + screenShakeOffset.x, 
+                       window.getSize().y / 2.f + screenShakeOffset.y);
+        window.setView(view);
+    } else {
+        window.setView(window.getDefaultView());
+    }
     
     // Configurar y dibujar fondo según el estado
     if (state == GameState::Menu) {
@@ -1014,8 +1246,20 @@ void Game::render() {
                 window.draw(brick);
         }
 
-        // Dibujar paddle y bola
+        // Dibujar paddle
         window.draw(paddle);
+        
+        // Dibujar estelas de la pelota (atrás de la bola)
+        for (const auto& trail : ballTrails) {
+            window.draw(trail.shape);
+        }
+        
+        // Dibujar destello de pelota (si hay velocidad)
+        if (ballGlowIntensity > 0.f) {
+            window.draw(ballGlow);
+        }
+        
+        // Dibujar bola
         window.draw(ball);
         
         // Dibujar bolas extra
@@ -1030,43 +1274,80 @@ void Game::render() {
             }
         }
         
-        // Actualizar y dibujar HUD (parte superior centro, horizontal)
+        // Dibujar partículas
+        for (const auto& particle : particles) {
+            window.draw(particle.shape);
+        }
+        
+        // Actualizar y dibujar HUD (distribuido en la pantalla)
         livesText.setString("Vidas: " + std::to_string(lives));
         scoreText.setString("Puntos: " + std::to_string(score));
         
-        // Posicionar horizontalmente en la parte superior centro
-        sf::FloatRect livesRect = livesText.getLocalBounds();
-        sf::FloatRect scoreRect = scoreText.getLocalBounds();
+        // Texto de nivel
+        sf::Text levelText;
+        levelText.setFont(font);
+        levelText.setCharacterSize(14);
+        levelText.setFillColor(sf::Color::Yellow);
+        levelText.setString("Nivel: " + std::to_string(currentLevel));
         
-        // Calcular ancho total de ambos textos con separación
-        float totalWidth = livesRect.width + scoreRect.width + hudSeparation;
-        float startX = (window.getSize().x - totalWidth) / 2.0f; // Centrar horizontalmente
-        
-        livesText.setPosition(startX, hudY); // Vidas a la izquierda
-        scoreText.setPosition(startX + livesRect.width + hudSeparation, hudY); // Puntos a la derecha
-        
-        window.draw(livesText);
-        window.draw(scoreText);
-        
-        // Display de volumen a la derecha del score
+        // Display de volumen
         sf::Text volumeHUD;
         volumeHUD.setFont(font);
-        volumeHUD.setCharacterSize(14); // Mismo tamaño que el HUD
+        volumeHUD.setCharacterSize(14);
         
         if (volumeInputMode) {
             std::string volDisplay = "VOL:[" + volumeInput + "_]";
             volumeHUD.setString(volDisplay);
-            volumeHUD.setFillColor(sf::Color::Blue); // Azul cuando es modificable
+            volumeHUD.setFillColor(sf::Color::Blue);
         } else {
             int currentVol = static_cast<int>(masterVolume * 99);
             std::string volDisplay = "VOL:" + std::to_string(currentVol) + "%";
             volumeHUD.setString(volDisplay);
-            volumeHUD.setFillColor(sf::Color::Yellow); // Amarillo fijo
+            volumeHUD.setFillColor(sf::Color::Yellow);
         }
         
-        sf::FloatRect scoreRect2 = scoreText.getLocalBounds();
-        volumeHUD.setPosition(startX + livesRect.width + hudSeparation + scoreRect2.width + 20, hudY);
+        // Posicionar manualmente (ajusta los valores en píxeles)
+        volumeHUD.setPosition(820.f, hudY);      // Volumen
+        scoreText.setPosition(350.f, hudY);     // Puntos
+        livesText.setPosition(550.f, hudY);     // Vidas
+        levelText.setPosition(690.f, hudY);     // Nivel
+        
+        window.draw(livesText);
+        window.draw(scoreText);
+        window.draw(levelText);
         window.draw(volumeHUD);
+        
+        // Dibujar indicador de PowerUp de velocidad (si está disponible)
+        if (hasPaddleSpeedPowerUp) {
+            sf::Sprite powerUpIcon;
+            powerUpIcon.setTexture(powerUpSpeedTexture);
+            powerUpIcon.setScale(0.3f, 0.3f);  // Pequeño para el HUD
+            powerUpIcon.setPosition(window.getSize().x - 125.f, hudY + 15.f);
+            
+            // Si está desactivado, hacer gris
+            if (!isPaddleSpeedActive) {
+                powerUpIcon.setColor(sf::Color(100, 100, 100, 180));  // Gris
+            }
+            
+            window.draw(powerUpIcon);
+            
+            // Texto indicador "[S] Speed"
+            sf::Text speedText;
+            speedText.setFont(font);
+            speedText.setCharacterSize(12);
+            speedText.setString("[S]");
+            speedText.setPosition(window.getSize().x - 113.f, hudY + 30.f);
+            
+            if (isPaddleSpeedActive) {
+                speedText.setFillColor(sf::Color(173, 216, 230));  // Azul cielo
+            } else {
+                speedText.setFillColor(sf::Color(100, 100, 100));  // Gris
+            }
+            
+            window.draw(speedText);
+        }
+    } else if (state == GameState::Controls) {
+        renderControls();
     } else if (state == GameState::GameOver) {
         renderGameOver();
     }
@@ -1118,6 +1399,7 @@ void Game::renderMenu() {
     // Dibujar comandos disponibles con progreso
     window.draw(playCommand);
     window.draw(exitCommand);
+    window.draw(controlsCommand);
     
     // Mostrar progreso visual de "PLAY"
     std::string playDisplay = "PLAY: ";
@@ -1133,7 +1415,7 @@ void Game::renderMenu() {
     playProgressText.setString(playDisplay);
     playProgressText.setCharacterSize(progressFontSize);
     playProgressText.setFillColor(sf::Color::Yellow);
-    playProgressText.setPosition(50, progressStartY);
+    playProgressText.setPosition(50, progressStartY + 30);
     window.draw(playProgressText);
     
     // Mostrar progreso visual de "EXIT"
@@ -1150,8 +1432,25 @@ void Game::renderMenu() {
     exitProgressText.setString(exitDisplay);
     exitProgressText.setCharacterSize(progressFontSize);
     exitProgressText.setFillColor(sf::Color::Red);
-    exitProgressText.setPosition(50, 350);
+    exitProgressText.setPosition(50, 380);
     window.draw(exitProgressText);
+    
+    // Mostrar progreso visual de "CONTROLS"
+    std::string controlsDisplay = "CONTROLS: ";
+    for (size_t i = 0; i < targetControls.length(); ++i) {
+        if (controlsProgress[i]) {
+            controlsDisplay += targetControls[i];
+        } else {
+            controlsDisplay += "_";
+        }
+    }
+    sf::Text controlsProgressText;
+    controlsProgressText.setFont(font);
+    controlsProgressText.setString(controlsDisplay);
+    controlsProgressText.setCharacterSize(progressFontSize);
+    controlsProgressText.setFillColor(sf::Color::Magenta);
+    controlsProgressText.setPosition(50, 410);
+    window.draw(controlsProgressText);
     
     // Mostrar control de volumen
     sf::Text volumeInfo;
@@ -1172,6 +1471,90 @@ void Game::renderMenu() {
     window.draw(volumeInfo);
 }
 
+void Game::renderControls() {
+    // ===============================================
+    // CONSTANTES DE POSICIÓN - CONTROLES
+    // ===============================================
+    
+    const float titleY = 80.f;
+    const float controlsListStartY = 180.f;
+    const float controlsLineSpacing = 40.f;
+    const float promptY = 450.f;
+    
+    const int titleFontSize = 24;
+    const int controlsFontSize = 18;
+    const int promptFontSize = 16;
+    
+    // Título
+    sf::Text title;
+    title.setFont(font);
+    title.setString("C:\\ARKANOID\\CONTROLS>");
+    title.setCharacterSize(titleFontSize);
+    title.setFillColor(sf::Color::Cyan);
+    title.setPosition(50, titleY);
+    window.draw(title);
+    
+    // Lista de controles
+    std::vector<std::string> controls = {
+        "PADDLE: Arrows (Left/Right)",
+        "THROW: Space",
+        "SPEED: S (with powerup)",
+        "RETURN: ESC (in game)",
+        "EXIT: ESC (in menu)"
+    };
+    
+    for (size_t i = 0; i < controls.size(); ++i) {
+        sf::Text controlText;
+        controlText.setFont(font);
+        controlText.setString(controls[i]);
+        controlText.setCharacterSize(controlsFontSize);
+        controlText.setFillColor(sf::Color::White);
+        controlText.setPosition(70, controlsListStartY + i * controlsLineSpacing);
+        window.draw(controlText);
+    }
+    
+    // Prompt de retorno
+    sf::Text returnPrompt;
+    returnPrompt.setFont(font);
+    returnPrompt.setString("Type 'return' to go back to menu");
+    returnPrompt.setCharacterSize(promptFontSize);
+    returnPrompt.setFillColor(sf::Color::Yellow);
+    returnPrompt.setPosition(50, promptY);
+    window.draw(returnPrompt);
+    
+    // Input del usuario
+    sf::Text inputPrompt;
+    inputPrompt.setFont(font);
+    inputPrompt.setString("> ");
+    inputPrompt.setCharacterSize(promptFontSize);
+    inputPrompt.setFillColor(sf::Color::Green);
+    inputPrompt.setPosition(50, promptY + 40);
+    window.draw(inputPrompt);
+    
+    sf::Text userInput;
+    userInput.setFont(font);
+    userInput.setString(currentControlsInput);
+    userInput.setCharacterSize(promptFontSize);
+    userInput.setFillColor(sf::Color::White);
+    userInput.setPosition(70, promptY + 40);
+    window.draw(userInput);
+    
+    // Cursor parpadeante
+    static sf::Clock cursorClock;
+    if (cursorClock.getElapsedTime().asSeconds() > 0.5f) {
+        cursorClock.restart();
+    }
+    if (cursorClock.getElapsedTime().asSeconds() < 0.25f) {
+        sf::Text cursor;
+        cursor.setFont(font);
+        cursor.setString("_");
+        cursor.setCharacterSize(promptFontSize);
+        cursor.setFillColor(sf::Color::Green);
+        cursor.setPosition(userInput.getPosition().x + userInput.getLocalBounds().width, promptY + 40);
+        window.draw(cursor);
+    }
+}
+
 void Game::resetGame() {
     // Reiniciar nivel
     currentLevel = 1;
@@ -1182,13 +1565,36 @@ void Game::resetGame() {
     powerUps.clear();
     extraBalls.clear();
     
+    // Seleccionar nueva música aleatoria para el nuevo juego
+    std::cout << "Seleccionando música aleatoria..." << std::endl;
+    if (!backgroundMusicTracks.empty()) {
+        currentTrackIndex = std::rand() % backgroundMusicTracks.size();
+        currentBackgroundMusic = backgroundMusicTracks[currentTrackIndex];
+        std::cout << "Música seleccionada: índice " << currentTrackIndex << std::endl;
+    } else {
+        std::cout << "ERROR: No hay músicas cargadas en backgroundMusicTracks" << std::endl;
+        currentBackgroundMusic = nullptr;
+    }
+    
+    // Resetear sistema de música de vida baja
+    if (currentLowLifeMusic && currentLowLifeMusic->getStatus() == sf::Music::Playing) {
+        currentLowLifeMusic->stop();
+    }
+    currentLowLifeMusic = nullptr;
+    isPlayingLowLifeMusic = false;
+    
     // Reiniciar paddle a tamaño y velocidad original
     sf::Vector2f originalSize(originalPaddleWidth, paddle.getSize().y);
     paddle.setSize(originalSize);
     paddle.setOrigin(originalSize.x / 2.f, originalSize.y / 2.f);
     paddle.speed = originalPaddleSpeed;
+    paddle.setFillColor(sf::Color::White);  // Color normal
     float paddleY = static_cast<float>(window.getSize().y) - 40.f;
     paddle.setPosition(static_cast<float>(window.getSize().x) / 2.f, paddleY);
+    
+    // Resetear PowerUp de velocidad
+    hasPaddleSpeedPowerUp = false;
+    isPaddleSpeedActive = false;
     
     // Reiniciar vidas al límite
     lives = maxLives;
@@ -1204,7 +1610,12 @@ void Game::loseLife() {
     if (lives <= 0) {
         // Game Over
         state = GameState::GameOver;
-        backgroundMusic.stop();    // Parar música de fondo
+        
+        // Detener toda la música
+        if (currentBackgroundMusic) currentBackgroundMusic->stop();
+        if (currentLowLifeMusic) currentLowLifeMusic->stop();
+        isPlayingLowLifeMusic = false;
+        
         gameOverSound.play();      // Reproducir sonido de game over
         showMatrixEffect = true;   // Activar efecto de cascada
         initMatrixEffect();        // Reinicializar columnas
@@ -1218,6 +1629,16 @@ void Game::loseLife() {
         // Limpiar bolas extra
         extraBalls.clear();
     } else {
+        // Si queda 1 vida, cambiar a música de tensión
+        if (lives == 1 && !isPlayingLowLifeMusic) {
+            if (currentBackgroundMusic) currentBackgroundMusic->stop();
+            
+            // Seleccionar aleatoriamente entre lowlife1 y lowlife2
+            currentLowLifeMusic = (std::rand() % 2 == 0) ? &lowLifeMusic1 : &lowLifeMusic2;
+            currentLowLifeMusic->play();
+            isPlayingLowLifeMusic = true;
+        }
+        
         // Reiniciar bola pegada al paddle
         ball.isStuck = true;
         ball.velocity = sf::Vector2f(0.f, 0.f);
@@ -1353,7 +1774,16 @@ void Game::renderGameOver() {
 void Game::updateMasterVolume() {
     // Aplicar volumen maestro a todos los componentes de audio
     bounceSound.setVolume(baseVolumeEffects * masterVolume);
-    backgroundMusic.setVolume(baseVolumeMusic * masterVolume);
+    
+    // Actualizar volumen de todas las músicas de fondo
+    for (auto* track : backgroundMusicTracks) {
+        track->setVolume(baseVolumeMusic * masterVolume);
+    }
+    
+    // Actualizar músicas de vida baja
+    lowLifeMusic1.setVolume(baseVolumeMusic * masterVolume);
+    lowLifeMusic2.setVolume(baseVolumeMusic * masterVolume);
+    
     menuMusic.setVolume(baseVolumeMenu * masterVolume);
     gameOverSound.setVolume(baseVolumeGameOver * masterVolume);
 }
@@ -1491,6 +1921,14 @@ void Game::processTerminalInput(char c) {
         }
     }
     
+    // Verificar si la letra pertenece a "controls"
+    for (size_t i = 0; i < targetControls.length(); ++i) {
+        if (targetControls[i] == c && !controlsProgress[i]) {
+            controlsProgress[i] = true;
+            break;
+        }
+    }
+    
     // Verificar si "play" está completo
     bool playComplete = true;
     for (bool progress : playProgress) {
@@ -1509,24 +1947,51 @@ void Game::processTerminalInput(char c) {
         }
     }
     
+    // Verificar si "controls" está completo
+    bool controlsComplete = true;
+    for (bool progress : controlsProgress) {
+        if (!progress) {
+            controlsComplete = false;
+            break;
+        }
+    }
+    
     // Ejecutar comando si está completo
     if (playComplete) {
         // Reiniciar progreso para próxima vez
         playProgress = {false, false, false, false};
         exitProgress = {false, false, false, false};
+        controlsProgress = {false, false, false, false, false, false, false, false};
         currentInput = "";
         
         // Iniciar juego
         state = GameState::Playing;
-        resetGame();
         menuMusic.stop();
-        backgroundMusic.play();
+        resetGame();
+        
+        // Reproducir música aleatoria
+        std::cout << "Intentando reproducir música..." << std::endl;
+        if (currentBackgroundMusic) {
+            std::cout << "Reproduciendo música de fondo" << std::endl;
+            currentBackgroundMusic->play();
+        } else {
+            std::cout << "ERROR: No hay música cargada!" << std::endl;
+        }
     }
     else if (exitComplete) {
         // Salir del juego
         menuMusic.stop();
-        backgroundMusic.stop();
+        if (currentBackgroundMusic) currentBackgroundMusic->stop();
+        if (currentLowLifeMusic) currentLowLifeMusic->stop();
         window.close();
+    }
+    else if (controlsComplete) {
+        // Ir a pantalla de controles
+        playProgress = {false, false, false, false};
+        exitProgress = {false, false, false, false};
+        controlsProgress = {false, false, false, false, false, false, false, false};
+        currentInput = "";
+        state = GameState::Controls;
     }
 }
 
@@ -1534,6 +1999,39 @@ void Game::processTerminalInput(char c) {
 void Game::updateTerminalDisplay() {
     // Esta función se puede usar para efectos adicionales si es necesario
     // Por ahora el renderizado se maneja directamente en renderMenu()
+}
+
+// Procesar entrada del menú de controles
+void Game::processControlsInput(char c) {
+    currentControlsInput += c;
+    
+    // Verificar si la letra pertenece a "return"
+    std::string targetReturn = "return";
+    for (size_t i = 0; i < targetReturn.length(); ++i) {
+        if (targetReturn[i] == c && !returnProgress[i]) {
+            returnProgress[i] = true;
+            break;
+        }
+    }
+    
+    // Verificar si "return" está completo
+    bool returnComplete = true;
+    for (bool progress : returnProgress) {
+        if (!progress) {
+            returnComplete = false;
+            break;
+        }
+    }
+    
+    // Ejecutar comando si está completo
+    if (returnComplete) {
+        // Reiniciar progreso para próxima vez
+        returnProgress = {false, false, false, false, false, false};
+        currentControlsInput = "";
+        
+        // Volver al menú principal
+        state = GameState::Menu;
+    }
 }
 
 // Procesar entrada del menú de game over
@@ -1587,13 +2085,136 @@ void Game::processGameOverInput(char c) {
         score = 0;
         showMatrixEffect = false;
         resetGame();
-        backgroundMusic.play();
+        
+        // Reproducir música aleatoria
+        std::cout << "Intentando reproducir música..." << std::endl;
+        if (currentBackgroundMusic) {
+            std::cout << "Reproduciendo música de fondo" << std::endl;
+            currentBackgroundMusic->play();
+        } else {
+            std::cout << "ERROR: No hay música cargada!" << std::endl;
+        }
     }
     else if (gameOverExitComplete) {
         // Salir del juego
         menuMusic.stop();
-        backgroundMusic.stop();
+        if (currentBackgroundMusic) currentBackgroundMusic->stop();
+        if (currentLowLifeMusic) currentLowLifeMusic->stop();
         window.close();
     }
+}
+
+// Crear partículas cuando se rompe un ladrillo
+void Game::createBrickParticles(sf::Vector2f position, sf::Color color) {
+    const int numParticles = 8;  // Pocas partículas para ser sutil
+    
+    for (int i = 0; i < numParticles; i++) {
+        Particle p;
+        p.shape.setSize(sf::Vector2f(3.f, 3.f));  // Partículas pequeñas
+        p.shape.setFillColor(color);
+        p.shape.setPosition(position);
+        
+        // Velocidad aleatoria en todas direcciones
+        float angle = (std::rand() % 360) * 3.14159f / 180.f;
+        float speed = 50.f + (std::rand() % 100);
+        p.velocity.x = std::cos(angle) * speed;
+        p.velocity.y = std::sin(angle) * speed;
+        
+        p.lifetime = 0.4f + (std::rand() % 300) / 1000.f;  // 0.4-0.7 segundos
+        p.maxLifetime = p.lifetime;
+        
+        particles.push_back(p);
+    }
+}
+
+// Actualizar partículas
+void Game::updateParticles(float dt) {
+    for (auto& particle : particles) {
+        particle.lifetime -= dt;
+        particle.shape.move(particle.velocity * dt);
+        
+        // Fade out progresivo
+        float alpha = (particle.lifetime / particle.maxLifetime) * 255.f;
+        sf::Color color = particle.shape.getFillColor();
+        color.a = static_cast<sf::Uint8>(alpha);
+        particle.shape.setFillColor(color);
+        
+        // Gravedad sutil
+        particle.velocity.y += 200.f * dt;
+    }
+    
+    // Eliminar partículas muertas
+    particles.erase(
+        std::remove_if(particles.begin(), particles.end(),
+            [](const Particle& p) { return p.lifetime <= 0.f; }),
+        particles.end()
+    );
+}
+
+// Actualizar destello de la pelota según velocidad
+void Game::updateBallGlow() {
+    // Calcular velocidad de la pelota
+    float speed = std::sqrt(ball.velocity.x * ball.velocity.x + ball.velocity.y * ball.velocity.y);
+    float baseSpeed = 400.f;  // Velocidad base de referencia
+    
+    // Intensidad del destello según velocidad (0-1)
+    if (speed > baseSpeed) {
+        ballGlowIntensity = std::min((speed - baseSpeed) / 300.f, 1.f);  // Escala hasta 700 de velocidad
+    } else {
+        ballGlowIntensity = 0.f;
+    }
+    
+    // Actualizar el destello visual
+    ballGlow.setPosition(ball.getPosition());
+    
+    // Color blanco con alpha según intensidad
+    sf::Uint8 alpha = static_cast<sf::Uint8>(ballGlowIntensity * 180.f);
+    ballGlow.setFillColor(sf::Color(255, 255, 255, alpha));
+}
+
+// Actualizar estelas tipo Tron de la pelota
+void Game::updateBallTrails(float dt) {
+    // Calcular velocidad de la pelota
+    float speed = std::sqrt(ball.velocity.x * ball.velocity.x + ball.velocity.y * ball.velocity.y);
+    float speedThreshold = 500.f;  // Velocidad mínima para que aparezcan estelas (después de 3+ golpes)
+    
+    // Solo crear estelas si la pelota va rápido
+    if (speed > speedThreshold && !ball.isStuck) {
+        trailSpawnTimer += dt;
+        
+        // Crear una nueva estela cada 0.03 segundos (sutil)
+        if (trailSpawnTimer >= 0.03f) {
+            trailSpawnTimer = 0.f;
+            
+            BallTrail trail;
+            trail.shape.setRadius(ball.getRadius() * 0.8f);  // Ligeramente más pequeña
+            trail.shape.setOrigin(trail.shape.getRadius(), trail.shape.getRadius());
+            trail.shape.setPosition(ball.getPosition());
+            trail.lifetime = 0.15f;  // Dura muy poco (efecto sutil)
+            
+            // Color celeste/cyan con transparencia
+            trail.shape.setFillColor(sf::Color(100, 200, 255, 120));
+            
+            ballTrails.push_back(trail);
+        }
+    }
+    
+    // Actualizar estelas existentes
+    for (auto& trail : ballTrails) {
+        trail.lifetime -= dt;
+        
+        // Fade out progresivo
+        float alpha = (trail.lifetime / 0.15f) * 120.f;
+        sf::Color color = trail.shape.getFillColor();
+        color.a = static_cast<sf::Uint8>(alpha);
+        trail.shape.setFillColor(color);
+    }
+    
+    // Eliminar estelas muertas
+    ballTrails.erase(
+        std::remove_if(ballTrails.begin(), ballTrails.end(),
+            [](const BallTrail& t) { return t.lifetime <= 0.f; }),
+        ballTrails.end()
+    );
 }
 

@@ -10,8 +10,24 @@
 
 enum class GameState {
     Menu,
+    Controls,
     Playing,
     GameOver
+};
+
+// Partícula para efectos de destrucción
+struct Particle {
+    sf::RectangleShape shape;
+    sf::Vector2f velocity;
+    float lifetime;
+    float maxLifetime;
+};
+
+// Estela de la pelota (efecto Tron)
+struct BallTrail {
+    sf::CircleShape shape;
+    float lifetime;
+    sf::Vector2f position;
 };
 
 class Game {
@@ -25,6 +41,7 @@ private:
     void update();
     void render();
     void renderMenu();
+    void renderControls();
     void renderGameOver();
     void resetGame();
     void loseLife();
@@ -32,11 +49,16 @@ private:
     void updateMatrixEffect();  // Actualizar cascada
     void renderMatrixEffect();  // Dibujar cascada
     void processTerminalInput(char c);     // Procesar entrada del menú terminal
+    void processControlsInput(char c);     // Procesar entrada del menú de controles
     void processGameOverInput(char c);     // Procesar entrada del menú de game over
     void updateTerminalDisplay();          // Actualizar display del terminal
 
     // Nueva función para crear el nivel
-    void initLevel(); 
+    void initLevel();
+    
+    // Efectos visuales
+    void createBrickParticles(sf::Vector2f position, sf::Color color);
+    void updateParticles(float dt); 
 
     sf::RenderWindow window;
     GameState state;
@@ -62,9 +84,19 @@ private:
     Paddle paddle;
     Ball ball;
     std::vector<Ball> extraBalls;  // Pelotas adicionales para MultiBall
+    float paddleRotation;          // Rotación suave del paddle
+    float targetPaddleRotation;    // Rotación objetivo del paddle
     float originalPaddleWidth;     // Para restaurar tamaño del paddle
     float originalPaddleSpeed;     // Para restaurar velocidad del paddle
     int maxLives;                  // Límite máximo de vidas
+    
+    // Sistema de velocidad del paddle con PowerUp
+    bool hasPaddleSpeedPowerUp;    // Si tiene el PowerUp de velocidad
+    bool isPaddleSpeedActive;      // Si la velocidad está activada (tecla S)
+    
+    // Sistema de destello de pelota por velocidad
+    sf::CircleShape ballGlow;      // Destello visual de la pelota
+    float ballGlowIntensity;       // Intensidad del destello (0-1)
     
     // Reloj para delta time
     sf::Clock clock;
@@ -93,12 +125,19 @@ private:
     std::string currentInput;          // Lo que ha escrito el usuario
     std::string targetPlay;            // "play"
     std::string targetExit;            // "exit"
+    std::string targetControls;        // "controls"
     std::vector<bool> playProgress;    // Progreso de "play" (p, l, a, y)
     std::vector<bool> exitProgress;    // Progreso de "exit" (e, x, i, t)
+    std::vector<bool> controlsProgress;// Progreso de "controls" (c, o, n, t, r, o, l, s)
     sf::Text terminalPrompt;           // "C:\\ARKANOID> "
     sf::Text playCommand;
     sf::Text exitCommand;
+    sf::Text controlsCommand;
     sf::Text titleCommand;
+    
+    // Menú de controles
+    std::string currentControlsInput;  // Lo que ha escrito el usuario en controles
+    std::vector<bool> returnProgress;  // Progreso de "return" (r, e, t, u, r, n)
     
     // Menú terminal de Game Over
     std::string currentGameOverInput;
@@ -119,7 +158,15 @@ private:
     sf::Text finalScoreText;
     
     // Sistema de audio
-    sf::Music backgroundMusic;     // Música durante el juego
+    std::vector<sf::Music*> backgroundMusicTracks;  // 7 músicas de fondo aleatorias
+    sf::Music* currentBackgroundMusic;              // Música actual
+    int currentTrackIndex;                          // Índice de la música actual
+    
+    sf::Music lowLifeMusic1;       // Música cuando queda 1 vida (opción 1)
+    sf::Music lowLifeMusic2;       // Música cuando queda 1 vida (opción 2)
+    sf::Music* currentLowLifeMusic;// Música de vida baja actual
+    bool isPlayingLowLifeMusic;    // Si está sonando música de vida baja
+    
     sf::Music menuMusic;          // Música del menú (loop)
     sf::SoundBuffer bounceBuffer;
     sf::Sound bounceSound;
@@ -140,4 +187,16 @@ private:
     // Funciones de volumen
     void updateMasterVolume();           // Actualizar todos los volúmenes con el maestro
     void processVolumeInput(char c);     // Procesar input de volumen
+    
+    // Sistema de efectos visuales
+    std::vector<Particle> particles;
+    std::vector<BallTrail> ballTrails;  // Estelas de la pelota
+    float trailSpawnTimer;              // Timer para crear estelas
+    sf::Vector2f screenShakeOffset;
+    float screenShakeDuration;
+    float screenShakeIntensity;
+    
+    // Función para actualizar destello de pelota
+    void updateBallGlow();
+    void updateBallTrails(float dt);
 };

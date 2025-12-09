@@ -40,5 +40,8 @@ docs/ DOCUMENTACION_COMPLETA.md
 ## 📚 Más detalle
 Resumen largo en: **docs/DOCUMENTACION_COMPLETA.md**
 
-## 👤 Autor
+## 👤 Equipo
 Proyecto 252 — [@MrTejuinoFake](https://github.com/MrTejuinoFake)
+
+Líder: Diego Ivan Sandoval Gutierrez (@Diegoo135)
+Integrante 2: Omar Ankin Rivas Zarate (@MrTejuinoFake)
