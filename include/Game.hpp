@@ -5,6 +5,7 @@
 #include "Brick.hpp"
 #include "Ball.hpp"
 #include "Paddle.hpp"
+#include "PowerUp.hpp"
 #include <array>
 
 enum class GameState {
@@ -50,9 +51,20 @@ private:
     sf::Texture blockTexture;      // Textura principal
     sf::Texture yellowBlockTexture; // Textura específica para bloques amarillos (velocidad)
     
+    // PowerUps
+    std::vector<PowerUp> powerUps;
+    sf::Texture powerUpSpeedTexture;
+    sf::Texture powerUpExpandTexture;
+    sf::Texture powerUpMultiBallTexture;
+    sf::Texture powerUpExtraLifeTexture;
+    
     // Paddle (base) y pelota
     Paddle paddle;
     Ball ball;
+    std::vector<Ball> extraBalls;  // Pelotas adicionales para MultiBall
+    float originalPaddleWidth;     // Para restaurar tamaño del paddle
+    float originalPaddleSpeed;     // Para restaurar velocidad del paddle
+    int maxLives;                  // Límite máximo de vidas
     
     // Reloj para delta time
     sf::Clock clock;
@@ -113,6 +125,8 @@ private:
     sf::Sound bounceSound;
     sf::SoundBuffer gameOverBuffer; // Sonido de game over
     sf::Sound gameOverSound;
+    sf::SoundBuffer specialBuffer;  // Sonido especial al presionar M
+    sf::Sound specialSound;
 
     // Sistema de control de volumen
     float masterVolume;           // Volumen maestro (0.0f - 1.0f)

@@ -310,6 +310,14 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
         baseVolumeGameOver = 50.0f;
         gameOverSound.setVolume(baseVolumeGameOver * masterVolume);  
     }
+    
+    // Cargar sonido especial para tecla M
+    if (!specialBuffer.loadFromFile("assets/music/meow.mp3")) {
+        std::cout << "No se pudo cargar sonido especial para M" << std::endl;
+    } else {
+        specialSound.setBuffer(specialBuffer);
+        specialSound.setVolume(80.0f * masterVolume);  
+    }
 
 
     blockTexture.setRepeated(true);
@@ -339,7 +347,35 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     yellowBlockTexture.setRepeated(true);
     yellowBlockTexture.setSmooth(true);
     
- 
+    // Cargar texturas de PowerUps con tamaño fijo
+    if (!powerUpSpeedTexture.loadFromFile("assets/images/powerup_speed.png")) {
+        sf::Image defaultImg;
+        defaultImg.create(40, 40, sf::Color::Green);
+        powerUpSpeedTexture.loadFromImage(defaultImg);
+    }
+    powerUpSpeedTexture.setSmooth(true);
+    
+    if (!powerUpExpandTexture.loadFromFile("assets/images/powerup_expand.png")) {
+        sf::Image defaultImg;
+        defaultImg.create(40, 40, sf::Color::Blue);
+        powerUpExpandTexture.loadFromImage(defaultImg);
+    }
+    powerUpExpandTexture.setSmooth(true);
+    
+    if (!powerUpMultiBallTexture.loadFromFile("assets/images/powerup_multiball.png")) {
+        sf::Image defaultImg;
+        defaultImg.create(40, 40, sf::Color::Cyan);
+        powerUpMultiBallTexture.loadFromImage(defaultImg);
+    }
+    powerUpMultiBallTexture.setSmooth(true);
+    
+    if (!powerUpExtraLifeTexture.loadFromFile("assets/images/powerup_life.png")) {
+        sf::Image defaultImg;
+        defaultImg.create(40, 40, sf::Color::Red);
+        powerUpExtraLifeTexture.loadFromImage(defaultImg);
+    }
+    powerUpExtraLifeTexture.setSmooth(true);
+    
     // Para que no se vea borroso si es pixel art
     blockTexture.setSmooth(true);
     
@@ -351,6 +387,9 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     // Inicializar paddle en la parte inferior
     float paddleY = static_cast<float>(window.getSize().y) - 40.f;
     paddle.setPosition(static_cast<float>(window.getSize().x) / 2.f, paddleY);
+    originalPaddleWidth = paddle.getSize().x;  // Guardar tamaño original
+    originalPaddleSpeed = paddle.speed;        // Guardar velocidad original
+    maxLives = 3;                              // Límite máximo de vidas
 
     // Inicializar bola pegada al paddle
     ball.setPosition(paddle.getPosition().x, paddle.getPosition().y - paddle.getSize().y/2.f - ball.getRadius() - 2.f);
@@ -511,6 +550,10 @@ void Game::processEvents() {
                     volumeInput.clear();
                     std::cout << "MODO VOLUMEN: Ingresa 00-99 y presiona Enter (ESC para cancelar)" << std::endl;
                 }
+                // Tecla M para reproducir audio especial
+                else if (event.key.code == sf::Keyboard::M) {
+                    specialSound.play();
+                }
                 // Enter para aplicar volumen
                 else if (event.key.code == sf::Keyboard::Enter && volumeInputMode) {
                     if (volumeInput.length() >= 1) {
@@ -566,6 +609,10 @@ void Game::processEvents() {
                     volumeInput.clear();
                     std::cout << "MODO VOLUMEN: Ingresa 00-99 y presiona Enter (ESC para cancelar)" << std::endl;
                 }
+                // Tecla M para reproducir audio especial
+                else if (event.key.code == sf::Keyboard::M) {
+                    specialSound.play();
+                }
                 // Backspace para borrar
                 else if (event.key.code == sf::Keyboard::BackSpace) {
                     if (volumeInputMode && !volumeInput.empty()) {
@@ -610,6 +657,10 @@ void Game::processEvents() {
                     volumeInputMode = true;
                     volumeInput.clear();
                     std::cout << "MODO VOLUMEN: Ingresa 00-99 y presiona Enter (ESC para cancelar)" << std::endl;
+                }
+                // Tecla M para reproducir audio especial
+                else if (event.key.code == sf::Keyboard::M) {
+                    specialSound.play();
                 }
                 // Backspace para borrar
                 else if (event.key.code == sf::Keyboard::BackSpace && volumeInputMode && !volumeInput.empty()) {
@@ -672,10 +723,73 @@ void Game::update() {
         ball.velocity.y = std::abs(ball.velocity.y);
         bounceSound.play();  // Sonido de rebote
     }
-    // Si la bola cae abajo, perder vida
+    // Si la bola principal cae abajo, perder vida (las extras no importan)
     if (pos.y - r > window.getSize().y) {
         loseLife();
     }
+    
+    // Actualizar bolas extra
+    for (auto& extraBall : extraBalls) {
+        extraBall.update(dt);
+        
+        // Colisiones de bolas extra con paredes
+        sf::Vector2f extraPos = extraBall.getPosition();
+        float extraR = extraBall.getRadius();
+        
+        if (extraPos.x - extraR < 0.f) {
+            extraBall.setPosition(extraR, extraPos.y);
+            extraBall.velocity.x = std::abs(extraBall.velocity.x);
+            bounceSound.play();
+        }
+        if (extraPos.x + extraR > window.getSize().x) {
+            extraBall.setPosition(static_cast<float>(window.getSize().x) - extraR, extraPos.y);
+            extraBall.velocity.x = -std::abs(extraBall.velocity.x);
+            bounceSound.play();
+        }
+        if (extraPos.y - extraR < 0.f) {
+            extraBall.setPosition(extraPos.x, extraR);
+            extraBall.velocity.y = std::abs(extraBall.velocity.y);
+            bounceSound.play();
+        }
+        
+        // Colisión bola extra con paddle
+        if (extraBall.getGlobalBounds().intersects(paddle.getGlobalBounds()) && extraBall.velocity.y > 0) {
+            extraBall.velocity.y = -std::abs(extraBall.velocity.y);
+            float paddleCenter = paddle.getPosition().x;
+            float extraBallCenter = extraBall.getPosition().x;
+            float offset = (extraBallCenter - paddleCenter) / (paddle.getSize().x / 2.f);
+            extraBall.velocity.x = offset * 300.f;
+            bounceSound.play();
+        }
+        
+        // Colisión bola extra con bricks
+        for (auto& brick : bricks) {
+            if (brick.isDestroyed) continue;
+            if (extraBall.getGlobalBounds().intersects(brick.getGlobalBounds())) {
+                brick.hitsRemaining--;
+                
+                if (brick.hitsRemaining <= 0) {
+                    brick.isDestroyed = true;
+                    score += brick.pointValue;
+                    
+                    if (brick.isSmallBlock) {
+                        extraBall.velocity *= 1.05f;
+                    }
+                }
+                
+                extraBall.velocity.y *= -1;
+                bounceSound.play();
+                break;
+            }
+        }
+    }
+    
+    // Eliminar bolas extra que caen
+    extraBalls.erase(
+        std::remove_if(extraBalls.begin(), extraBalls.end(),
+            [this](const Ball& b) { return b.getPosition().y > window.getSize().y; }),
+        extraBalls.end()
+    );
 
     // Colisión con paddle
     if (ball.getGlobalBounds().intersects(paddle.getGlobalBounds()) && ball.velocity.y > 0.f) {
@@ -701,6 +815,32 @@ void Game::update() {
             if (brick.hitsRemaining <= 0) {
                 brick.isDestroyed = true;
                 score += brick.pointValue;
+                
+                // 20% probabilidad de generar PowerUp
+                if (std::rand() % 100 < 20) {
+                    // Tipo aleatorio de PowerUp con probabilidades diferentes
+                    int rarity = std::rand() % 100;
+                    PowerUpType type;
+                    const sf::Texture* texture;
+                    
+                    if (rarity < 5) {  // 5% - MUY RARO: Vida extra
+                        type = PowerUpType::ExtraLife;
+                        texture = &powerUpExtraLifeTexture;
+                    } else if (rarity < 40) {  // 35% - SpeedPaddle
+                        type = PowerUpType::SpeedPaddle;
+                        texture = &powerUpSpeedTexture;
+                    } else if (rarity < 70) {  // 30% - ExpandPaddle
+                        type = PowerUpType::ExpandPaddle;
+                        texture = &powerUpExpandTexture;
+                    } else {  // 30% - MultiBall
+                        type = PowerUpType::MultiBall;
+                        texture = &powerUpMultiBallTexture;
+                    }
+                    
+                    PowerUp powerUp(brick.getPosition().x, brick.getPosition().y, type);
+                    powerUp.setTexture(texture);
+                    powerUps.push_back(powerUp);
+                }
                 
                 // Efecto especial para bloques pequeños: aumentar velocidad 5%
                 if (brick.isSmallBlock) {
@@ -749,6 +889,64 @@ void Game::update() {
         ball.isStuck = true;
         ball.velocity = sf::Vector2f(0.f, 0.f);
     }
+    
+    // Actualizar PowerUps
+    for (auto& powerUp : powerUps) {
+        if (powerUp.isActive()) {
+            powerUp.update(dt);
+            
+            // Verificar colisión con paddle
+            if (powerUp.getGlobalBounds().intersects(paddle.getGlobalBounds())) {
+                powerUp.deactivate();
+                
+                // Aplicar efecto según tipo
+                switch(powerUp.getType()) {
+                    case PowerUpType::SpeedPaddle:
+                        paddle.speed *= 1.5f;
+                        break;
+                    case PowerUpType::ExpandPaddle:
+                        {
+                            sf::Vector2f newSize(paddle.getSize().x * 1.5f, paddle.getSize().y);
+                            paddle.setSize(newSize);
+                            paddle.setOrigin(newSize.x / 2.f, newSize.y / 2.f);
+                        }
+                        break;
+                    case PowerUpType::MultiBall:
+                        // Crear 2 bolas adicionales
+                        for (int i = 0; i < 2; i++) {
+                            Ball newBall(ball.getRadius(), true);  // true = extra ball (colored)
+                            newBall.setPosition(ball.getPosition());
+                            newBall.speed = ball.speed;
+                            float angle = (std::rand() % 60 - 30) * 3.14159f / 180.f;
+                            newBall.velocity = sf::Vector2f(
+                                ball.velocity.x * std::cos(angle) - ball.velocity.y * std::sin(angle),
+                                ball.velocity.x * std::sin(angle) + ball.velocity.y * std::cos(angle)
+                            );
+                            newBall.isStuck = false;
+                            extraBalls.push_back(newBall);
+                        }
+                        break;
+                    case PowerUpType::ExtraLife:
+                        if (lives < maxLives) {
+                            lives++;
+                        }
+                        break;
+                }
+            }
+            
+            // Desactivar si sale de la pantalla
+            if (powerUp.getPosition().y > window.getSize().y) {
+                powerUp.deactivate();
+            }
+        }
+    }
+    
+    // Limpiar PowerUps inactivos
+    powerUps.erase(
+        std::remove_if(powerUps.begin(), powerUps.end(),
+            [](const PowerUp& p) { return !p.isActive(); }),
+        powerUps.end()
+    );
 }
 
 // Dibujado
@@ -819,6 +1017,18 @@ void Game::render() {
         // Dibujar paddle y bola
         window.draw(paddle);
         window.draw(ball);
+        
+        // Dibujar bolas extra
+        for (const auto& extraBall : extraBalls) {
+            window.draw(extraBall);
+        }
+        
+        // Dibujar PowerUps
+        for (const auto& powerUp : powerUps) {
+            if (powerUp.isActive()) {
+                window.draw(powerUp);
+            }
+        }
         
         // Actualizar y dibujar HUD (parte superior centro, horizontal)
         livesText.setString("Vidas: " + std::to_string(lives));
@@ -968,9 +1178,20 @@ void Game::resetGame() {
     // Recrear nivel
     initLevel();
     
-    // Reiniciar paddle
+    // Limpiar PowerUps y bolas extra
+    powerUps.clear();
+    extraBalls.clear();
+    
+    // Reiniciar paddle a tamaño y velocidad original
+    sf::Vector2f originalSize(originalPaddleWidth, paddle.getSize().y);
+    paddle.setSize(originalSize);
+    paddle.setOrigin(originalSize.x / 2.f, originalSize.y / 2.f);
+    paddle.speed = originalPaddleSpeed;
     float paddleY = static_cast<float>(window.getSize().y) - 40.f;
     paddle.setPosition(static_cast<float>(window.getSize().x) / 2.f, paddleY);
+    
+    // Reiniciar vidas al límite
+    lives = maxLives;
     
     // Reiniciar bola pegada al paddle
     ball.setPosition(paddle.getPosition().x, paddle.getPosition().y - paddle.getSize().y/2.f - ball.getRadius() - 2.f);
@@ -993,10 +1214,15 @@ void Game::loseLife() {
         sf::FloatRect scoreRect = finalScoreText.getLocalBounds();
         finalScoreText.setOrigin(scoreRect.left + scoreRect.width/2.0f, scoreRect.top + scoreRect.height/2.0f);
         finalScoreText.setPosition(window.getSize().x / 2.0f, window.getSize().y / 2.0f + 50);
+        
+        // Limpiar bolas extra
+        extraBalls.clear();
     } else {
         // Reiniciar bola pegada al paddle
         ball.isStuck = true;
         ball.velocity = sf::Vector2f(0.f, 0.f);
+        // Limpiar bolas extra al perder vida
+        extraBalls.clear();
     }
 }
 
