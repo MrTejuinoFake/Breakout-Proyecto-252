@@ -13,7 +13,7 @@ void Game::initLevel() {
     // CONSTANTES DE CONFIGURACIÓN 
     // ===============================================
     
-    // Dimensiones de la grilla
+    // Dimensiones de la cuadrícula de bloques
     const int columns = 16;                  // Número de columnas de bloques
     const int rows = 8;                      // Número de filas de bloques
     
@@ -21,16 +21,16 @@ void Game::initLevel() {
     const float cellWidth = 60.f;           // Ancho de cada celda en píxeles
     const float cellHeight = 30.f;          // Alto de cada celda en píxeles
     
-    // Posicionamiento
+    // Posición inicial para centrar la cuadrícula
     const float startX = 8.0f;              // Distancia desde el borde izquierdo
     const float startY = 200.f;             // Distancia desde la parte superior
     
-    // Probabilidades de bloques especiales (escaladas por nivel)
+    // Probabilidades de tipos de bloques (según nivel)
     int smallBlockChance = 15 + (currentLevel - 1) * 3;     // Más bloques pequeños cada nivel
     int purpleBlockChance = 10 + (currentLevel - 1) * 5;    // Más bloques de 3 golpes
     int redBlockChance = 25 + (currentLevel - 1) * 2;       // Más bloques de 2 golpes
     
-    // MODO INFERNO: Aumentar dramáticamente las probabilidades
+    // MODO INFERNO: Aumenta drásticamente ciertos bloques
     if (isInfernoMode) {
         smallBlockChance = 40 + (currentLevel - 1) * 5;     // Muchos más bloques amarillos
         if (smallBlockChance > 70) smallBlockChance = 70;   // Máximo 70%
