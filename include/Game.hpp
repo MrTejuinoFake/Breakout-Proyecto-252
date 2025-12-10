@@ -126,14 +126,20 @@ private:
     std::string targetPlay;            // "play"
     std::string targetExit;            // "exit"
     std::string targetControls;        // "controls"
+    std::string targetInferno;         // "inferno"
     std::vector<bool> playProgress;    // Progreso de "play" (p, l, a, y)
     std::vector<bool> exitProgress;    // Progreso de "exit" (e, x, i, t)
     std::vector<bool> controlsProgress;// Progreso de "controls" (c, o, n, t, r, o, l, s)
+    std::vector<bool> infernoProgress; // Progreso de "inferno" (i, n, f, e, r, n, o)
     sf::Text terminalPrompt;           // "C:\\ARKANOID> "
     sf::Text playCommand;
     sf::Text exitCommand;
     sf::Text controlsCommand;
+    sf::Text infernoCommand;
     sf::Text titleCommand;
+    
+    // Modo de juego
+    bool isInfernoMode;                // true = modo Inferno, false = modo Normal
     
     // Menú de controles
     std::string currentControlsInput;  // Lo que ha escrito el usuario en controles

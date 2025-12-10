@@ -27,13 +27,25 @@ void Game::initLevel() {
     
     // Probabilidades de bloques especiales (escaladas por nivel)
     int smallBlockChance = 15 + (currentLevel - 1) * 3;     // Más bloques pequeños cada nivel
-    if (smallBlockChance > 40) smallBlockChance = 40;       // Máximo 40%
-    
     int purpleBlockChance = 10 + (currentLevel - 1) * 5;    // Más bloques de 3 golpes
-    if (purpleBlockChance > 35) purpleBlockChance = 35;     // Máximo 35%
-    
     int redBlockChance = 25 + (currentLevel - 1) * 2;       // Más bloques de 2 golpes
-    if (redBlockChance > 45) redBlockChance = 45;           // Máximo 45%
+    
+    // MODO INFERNO: Aumentar dramáticamente las probabilidades
+    if (isInfernoMode) {
+        smallBlockChance = 40 + (currentLevel - 1) * 5;     // Muchos más bloques amarillos
+        if (smallBlockChance > 70) smallBlockChance = 70;   // Máximo 70%
+        
+        purpleBlockChance = 35 + (currentLevel - 1) * 8;    // Muchos más bloques morados
+        if (purpleBlockChance > 60) purpleBlockChance = 60; // Máximo 60%
+        
+        redBlockChance = 50 + (currentLevel - 1) * 5;       // Muchos más bloques rojos
+        if (redBlockChance > 75) redBlockChance = 75;       // Máximo 75%
+    } else {
+        // Modo normal
+        if (smallBlockChance > 40) smallBlockChance = 40;   // Máximo 40%
+        if (purpleBlockChance > 35) purpleBlockChance = 35; // Máximo 35%
+        if (redBlockChance > 45) redBlockChance = 45;       // Máximo 45%
+    }
     
     // Valores de puntuación
     const int normalBlockPoints = 10;       // Puntos por bloque normal (1 golpe)
@@ -487,9 +499,14 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     targetPlay = "play";
     targetExit = "exit";
     targetControls = "controls";
+    targetInferno = "inferno";
     playProgress = {false, false, false, false}; // p, l, a, y
     exitProgress = {false, false, false, false}; // e, x, i, t
     controlsProgress = {false, false, false, false, false, false, false, false}; // c, o, n, t, r, o, l, s
+    infernoProgress = {false, false, false, false, false, false, false}; // i, n, f, e, r, n, o
+    
+    // Inicializar modo de juego
+    isInfernoMode = false;
     
     // Inicializar sistema de menú de controles
     currentControlsInput = "";
@@ -525,6 +542,12 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     controlsCommand.setCharacterSize(commandFontSize);
     controlsCommand.setFillColor(sf::Color::White);
     controlsCommand.setPosition(50, commandListY + 60);
+    
+    infernoCommand.setFont(font);
+    infernoCommand.setString("INFERNO - START HELL MODE");
+    infernoCommand.setCharacterSize(commandFontSize);
+    infernoCommand.setFillColor(sf::Color(255, 69, 0)); // Rojo-naranja intenso
+    infernoCommand.setPosition(50, commandListY + 90);
     
     // Inicializar sistema de menú terminal de game over
     currentGameOverInput = "";
@@ -836,23 +859,38 @@ void Game::update() {
         ball.setPosition(r, pos.y);
         ball.velocity.x = std::abs(ball.velocity.x);
         bounceSound.play();  // Sonido de rebote
-        screenShakeDuration = 0.08f;
-        screenShakeIntensity = 2.5f;
+        if (isInfernoMode) {
+            screenShakeDuration = 0.12f;
+            screenShakeIntensity = 4.5f;  // Mucho más intenso
+        } else {
+            screenShakeDuration = 0.08f;
+            screenShakeIntensity = 2.5f;
+        }
     }
     if (pos.x + r > window.getSize().x) {
         ball.setPosition(static_cast<float>(window.getSize().x) - r, pos.y);
         ball.velocity.x = -std::abs(ball.velocity.x);
         bounceSound.play();  // Sonido de rebote
-        screenShakeDuration = 0.08f;
-        screenShakeIntensity = 2.5f;
+        if (isInfernoMode) {
+            screenShakeDuration = 0.12f;
+            screenShakeIntensity = 4.5f;  // Mucho más intenso
+        } else {
+            screenShakeDuration = 0.08f;
+            screenShakeIntensity = 2.5f;
+        }
     }
     // Colisión con techo
     if (pos.y - r < 0.f) {
         ball.setPosition(pos.x, r);
         ball.velocity.y = std::abs(ball.velocity.y);
         bounceSound.play();  // Sonido de rebote
-        screenShakeDuration = 0.08f;
-        screenShakeIntensity = 2.5f;
+        if (isInfernoMode) {
+            screenShakeDuration = 0.12f;
+            screenShakeIntensity = 4.5f;  // Mucho más intenso
+        } else {
+            screenShakeDuration = 0.08f;
+            screenShakeIntensity = 2.5f;
+        }
     }
     // Si la bola principal cae abajo, perder vida (las extras no importan)
     if (pos.y - r > window.getSize().y) {
@@ -909,22 +947,39 @@ void Game::update() {
                     createBrickParticles(brick.getPosition(), brick.getFillColor());
                     
                     if (brick.isSmallBlock) {
-                        extraBall.velocity *= 1.05f;
+                        if (isInfernoMode) {
+                            extraBall.velocity *= 1.12f; // 12% más rápido en modo Inferno
+                        } else {
+                            extraBall.velocity *= 1.05f; // 5% en modo normal
+                        }
                     }
                 } else {
                     // Partículas exageradas para ladrillos resistentes (aún tienen golpes)
-                    for (int i = 0; i < 12; i++) {  // Más partículas que normal
+                    int heavyParticles = isInfernoMode ? 24 : 12;  // Doble en Inferno
+                    for (int i = 0; i < heavyParticles; i++) {
                         Particle p;
-                        p.shape.setSize(sf::Vector2f(4.f, 4.f));  // Más grandes
-                        p.shape.setFillColor(brick.getFillColor());
+                        
+                        // MODO INFERNO: Partículas mucho más grandes y rojas
+                        if (isInfernoMode) {
+                            p.shape.setSize(sf::Vector2f(6.f, 6.f));  // Más grandes
+                            sf::Color brickColor = brick.getFillColor();
+                            sf::Uint8 r = std::min(255, static_cast<int>(brickColor.r) + 100);
+                            sf::Uint8 g = static_cast<sf::Uint8>(brickColor.g * 0.3f);
+                            sf::Uint8 b = static_cast<sf::Uint8>(brickColor.b * 0.2f);
+                            p.shape.setFillColor(sf::Color(r, g, b));
+                        } else {
+                            p.shape.setSize(sf::Vector2f(4.f, 4.f));
+                            p.shape.setFillColor(brick.getFillColor());
+                        }
+                        
                         p.shape.setPosition(brick.getPosition());
                         
                         float angle = (std::rand() % 360) * 3.14159f / 180.f;
-                        float speed = 80.f + (std::rand() % 120);  // Más rápidas
+                        float speed = isInfernoMode ? (150.f + (std::rand() % 200)) : (80.f + (std::rand() % 120));
                         p.velocity.x = std::cos(angle) * speed;
                         p.velocity.y = std::sin(angle) * speed;
                         
-                        p.lifetime = 0.5f + (std::rand() % 400) / 1000.f;
+                        p.lifetime = isInfernoMode ? (0.7f + (std::rand() % 500) / 1000.f) : (0.5f + (std::rand() % 400) / 1000.f);
                         p.maxLifetime = p.lifetime;
                         
                         particles.push_back(p);
@@ -997,24 +1052,41 @@ void Game::update() {
                     powerUps.push_back(powerUp);
                 }
                 
-                // Efecto especial para bloques pequeños: aumentar velocidad 5%
+                // Efecto especial para bloques pequeños: aumentar velocidad
                 if (brick.isSmallBlock) {
-                    ball.velocity *= 1.05f;
+                    if (isInfernoMode) {
+                        ball.velocity *= 1.12f; // 12% más rápido en modo Inferno
+                    } else {
+                        ball.velocity *= 1.05f; // 5% en modo normal
+                    }
                 }
             } else {
                 // Partículas exageradas para ladrillos resistentes (aún tienen golpes)
-                for (int i = 0; i < 12; i++) {  // Más partículas que normal
+                int heavyParticles = isInfernoMode ? 24 : 12;  // Doble en Inferno
+                for (int i = 0; i < heavyParticles; i++) {
                     Particle p;
-                    p.shape.setSize(sf::Vector2f(4.f, 4.f));  // Más grandes
-                    p.shape.setFillColor(brick.getFillColor());
+                    
+                    // MODO INFERNO: Partículas mucho más grandes y rojas
+                    if (isInfernoMode) {
+                        p.shape.setSize(sf::Vector2f(6.f, 6.f));  // Más grandes
+                        sf::Color brickColor = brick.getFillColor();
+                        sf::Uint8 r = std::min(255, static_cast<int>(brickColor.r) + 100);
+                        sf::Uint8 g = static_cast<sf::Uint8>(brickColor.g * 0.3f);
+                        sf::Uint8 b = static_cast<sf::Uint8>(brickColor.b * 0.2f);
+                        p.shape.setFillColor(sf::Color(r, g, b));
+                    } else {
+                        p.shape.setSize(sf::Vector2f(4.f, 4.f));
+                        p.shape.setFillColor(brick.getFillColor());
+                    }
+                    
                     p.shape.setPosition(brick.getPosition());
                     
                     float angle = (std::rand() % 360) * 3.14159f / 180.f;
-                    float speed = 80.f + (std::rand() % 120);  // Más rápidas
+                    float speed = isInfernoMode ? (150.f + (std::rand() % 200)) : (80.f + (std::rand() % 120));
                     p.velocity.x = std::cos(angle) * speed;
                     p.velocity.y = std::sin(angle) * speed;
                     
-                    p.lifetime = 0.5f + (std::rand() % 400) / 1000.f;
+                    p.lifetime = isInfernoMode ? (0.7f + (std::rand() % 500) / 1000.f) : (0.5f + (std::rand() % 400) / 1000.f);
                     p.maxLifetime = p.lifetime;
                     
                     particles.push_back(p);
@@ -1214,6 +1286,12 @@ void Game::render() {
         
         // Aplicar tinte rojo progresivo según el nivel
         float redIntensity = std::min(1.0f, (currentLevel - 1) * 0.1f);  // 10% más rojo por nivel
+        
+        // MODO INFERNO: Filtro rojo sangriento mucho más intenso
+        if (isInfernoMode) {
+            redIntensity = std::min(1.0f, redIntensity + 0.6f);  // Agregar 60% de intensidad roja base
+        }
+        
         sf::Uint8 red = static_cast<sf::Uint8>(255);
         sf::Uint8 green = static_cast<sf::Uint8>(255 * (1.0f - redIntensity * 0.5f));  // Reducir verde
         sf::Uint8 blue = static_cast<sf::Uint8>(255 * (1.0f - redIntensity * 0.8f));   // Reducir azul más
@@ -1306,6 +1384,16 @@ void Game::render() {
             volumeHUD.setFillColor(sf::Color::Yellow);
         }
         
+        // Indicador de modo Inferno
+        sf::Text infernoModeText;
+        if (isInfernoMode) {
+            infernoModeText.setFont(font);
+            infernoModeText.setCharacterSize(14);
+            infernoModeText.setFillColor(sf::Color(220, 20, 20)); // Rojo intenso
+            infernoModeText.setString("[INFERNO]");
+            infernoModeText.setPosition(window.getSize().x - 230.f, hudY + 30.f); // A la izquierda del indicador [S]
+        }
+        
         // Posicionar manualmente (ajusta los valores en píxeles)
         volumeHUD.setPosition(820.f, hudY);      // Volumen
         scoreText.setPosition(350.f, hudY);     // Puntos
@@ -1316,6 +1404,9 @@ void Game::render() {
         window.draw(scoreText);
         window.draw(levelText);
         window.draw(volumeHUD);
+        if (isInfernoMode) {
+            window.draw(infernoModeText);
+        }
         
         // Dibujar indicador de PowerUp de velocidad (si está disponible)
         if (hasPaddleSpeedPowerUp) {
@@ -1400,6 +1491,7 @@ void Game::renderMenu() {
     window.draw(playCommand);
     window.draw(exitCommand);
     window.draw(controlsCommand);
+    window.draw(infernoCommand);
     
     // Mostrar progreso visual de "PLAY"
     std::string playDisplay = "PLAY: ";
@@ -1415,7 +1507,7 @@ void Game::renderMenu() {
     playProgressText.setString(playDisplay);
     playProgressText.setCharacterSize(progressFontSize);
     playProgressText.setFillColor(sf::Color::Yellow);
-    playProgressText.setPosition(50, progressStartY + 30);
+    playProgressText.setPosition(50, progressStartY + 60);
     window.draw(playProgressText);
     
     // Mostrar progreso visual de "EXIT"
@@ -1432,7 +1524,7 @@ void Game::renderMenu() {
     exitProgressText.setString(exitDisplay);
     exitProgressText.setCharacterSize(progressFontSize);
     exitProgressText.setFillColor(sf::Color::Red);
-    exitProgressText.setPosition(50, 380);
+    exitProgressText.setPosition(50, 405);
     window.draw(exitProgressText);
     
     // Mostrar progreso visual de "CONTROLS"
@@ -1449,15 +1541,32 @@ void Game::renderMenu() {
     controlsProgressText.setString(controlsDisplay);
     controlsProgressText.setCharacterSize(progressFontSize);
     controlsProgressText.setFillColor(sf::Color::Magenta);
-    controlsProgressText.setPosition(50, 410);
+    controlsProgressText.setPosition(50, 430);
     window.draw(controlsProgressText);
+    
+    // Mostrar progreso visual de "INFERNO"
+    std::string infernoDisplay = "INFERNO: ";
+    for (size_t i = 0; i < targetInferno.length(); ++i) {
+        if (infernoProgress[i]) {
+            infernoDisplay += targetInferno[i];
+        } else {
+            infernoDisplay += "_";
+        }
+    }
+    sf::Text infernoProgressText;
+    infernoProgressText.setFont(font);
+    infernoProgressText.setString(infernoDisplay);
+    infernoProgressText.setCharacterSize(progressFontSize);
+    infernoProgressText.setFillColor(sf::Color(255, 69, 0)); // Rojo-naranja intenso
+    infernoProgressText.setPosition(50, 455);
+    window.draw(infernoProgressText);
     
     // Mostrar control de volumen
     sf::Text volumeInfo;
     volumeInfo.setFont(font);
     volumeInfo.setCharacterSize(12);
     volumeInfo.setFillColor(sf::Color::Cyan);
-    volumeInfo.setPosition(50, 450);
+    volumeInfo.setPosition(50, 530);
     
     if (volumeInputMode) {
         std::string volDisplay = "VOLUMEN: [" + volumeInput + "_] (00-99, Enter para aplicar)";
@@ -1929,6 +2038,14 @@ void Game::processTerminalInput(char c) {
         }
     }
     
+    // Verificar si la letra pertenece a "inferno"
+    for (size_t i = 0; i < targetInferno.length(); ++i) {
+        if (targetInferno[i] == c && !infernoProgress[i]) {
+            infernoProgress[i] = true;
+            break;
+        }
+    }
+    
     // Verificar si "play" está completo
     bool playComplete = true;
     for (bool progress : playProgress) {
@@ -1956,14 +2073,25 @@ void Game::processTerminalInput(char c) {
         }
     }
     
+    // Verificar si "inferno" está completo
+    bool infernoComplete = true;
+    for (bool progress : infernoProgress) {
+        if (!progress) {
+            infernoComplete = false;
+            break;
+        }
+    }
+    
     // Ejecutar comando si está completo
     if (playComplete) {
         // Reiniciar progreso para próxima vez
         playProgress = {false, false, false, false};
         exitProgress = {false, false, false, false};
         controlsProgress = {false, false, false, false, false, false, false, false};
+        infernoProgress = {false, false, false, false, false, false, false};
         currentInput = "";
         
+        isInfernoMode = false; // Modo normal
         // Iniciar juego
         state = GameState::Playing;
         menuMusic.stop();
@@ -1990,8 +2118,31 @@ void Game::processTerminalInput(char c) {
         playProgress = {false, false, false, false};
         exitProgress = {false, false, false, false};
         controlsProgress = {false, false, false, false, false, false, false, false};
+        infernoProgress = {false, false, false, false, false, false, false};
         currentInput = "";
         state = GameState::Controls;
+    }
+    else if (infernoComplete) {
+        // Iniciar juego en modo INFERNO
+        playProgress = {false, false, false, false};
+        exitProgress = {false, false, false, false};
+        controlsProgress = {false, false, false, false, false, false, false, false};
+        infernoProgress = {false, false, false, false, false, false, false};
+        currentInput = "";
+        
+        isInfernoMode = true; // Activar modo Inferno
+        state = GameState::Playing;
+        menuMusic.stop();
+        resetGame();
+        
+        // Reproducir música aleatoria
+        std::cout << "MODO INFERNO ACTIVADO!" << std::endl;
+        if (currentBackgroundMusic) {
+            std::cout << "Reproduciendo música de fondo" << std::endl;
+            currentBackgroundMusic->play();
+        } else {
+            std::cout << "ERROR: No hay música cargada!" << std::endl;
+        }
     }
 }
 
@@ -2106,21 +2257,37 @@ void Game::processGameOverInput(char c) {
 
 // Crear partículas cuando se rompe un ladrillo
 void Game::createBrickParticles(sf::Vector2f position, sf::Color color) {
-    const int numParticles = 8;  // Pocas partículas para ser sutil
+    // MODO INFERNO: Más partículas y más agresivas
+    int numParticles = isInfernoMode ? 18 : 8;  // Más del doble en Inferno
     
     for (int i = 0; i < numParticles; i++) {
         Particle p;
-        p.shape.setSize(sf::Vector2f(3.f, 3.f));  // Partículas pequeñas
-        p.shape.setFillColor(color);
+        
+        // MODO INFERNO: Partículas más grandes y con tinte rojo
+        if (isInfernoMode) {
+            p.shape.setSize(sf::Vector2f(5.f, 5.f));  // Más grandes
+            // Agregar tinte rojo sangriento a las partículas
+            sf::Uint8 r = std::min(255, static_cast<int>(color.r) + 80);
+            sf::Uint8 g = static_cast<sf::Uint8>(color.g * 0.4f);  // Reducir verde
+            sf::Uint8 b = static_cast<sf::Uint8>(color.b * 0.3f);  // Reducir azul
+            p.shape.setFillColor(sf::Color(r, g, b));
+        } else {
+            p.shape.setSize(sf::Vector2f(3.f, 3.f));  // Normales
+            p.shape.setFillColor(color);
+        }
+        
         p.shape.setPosition(position);
         
         // Velocidad aleatoria en todas direcciones
         float angle = (std::rand() % 360) * 3.14159f / 180.f;
-        float speed = 50.f + (std::rand() % 100);
+        
+        // MODO INFERNO: Partículas mucho más rápidas y explosivas
+        float speed = isInfernoMode ? (120.f + (std::rand() % 180)) : (50.f + (std::rand() % 100));
         p.velocity.x = std::cos(angle) * speed;
         p.velocity.y = std::sin(angle) * speed;
         
-        p.lifetime = 0.4f + (std::rand() % 300) / 1000.f;  // 0.4-0.7 segundos
+        // MODO INFERNO: Partículas duran más tiempo para efecto dramático
+        p.lifetime = isInfernoMode ? (0.6f + (std::rand() % 400) / 1000.f) : (0.4f + (std::rand() % 300) / 1000.f);
         p.maxLifetime = p.lifetime;
         
         particles.push_back(p);
