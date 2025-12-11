@@ -250,6 +250,10 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     // Inicializar sistema de power-ups activos
     speedPaddleDuration = 8.f;      // 8 segundos de duración
     expandPaddleDuration = 8.f;     // 8 segundos de duración
+    shrinkPaddleDuration = 8.f;     // 8 segundos de duración (desventaja)
+    slowPaddleDuration = 8.f;       // 8 segundos de duración (desventaja)
+    slowMotionDuration = 6.f;       // 6 segundos de duración (desventaja)
+    slowMotionMultiplier = 0.5f;    // 50% de velocidad normal
     
     // Inicializar destello de pelota
     ballGlow.setRadius(ball.getRadius() + 4.f);
@@ -466,6 +470,28 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
         powerUpExtraLifeTexture.loadFromImage(defaultImg);
     }
     powerUpExtraLifeTexture.setSmooth(true);
+    
+    // Cargar texturas de PowerUps desventajosos
+    if (!powerUpShrinkTexture.loadFromFile("assets/images/powerup_shrink.png")) {
+        sf::Image defaultImg;
+        defaultImg.create(40, 40, sf::Color::Magenta);
+        powerUpShrinkTexture.loadFromImage(defaultImg);
+    }
+    powerUpShrinkTexture.setSmooth(true);
+    
+    if (!powerUpSlowTexture.loadFromFile("assets/images/powerup_slow.png")) {
+        sf::Image defaultImg;
+        defaultImg.create(40, 40, sf::Color::Yellow);
+        powerUpSlowTexture.loadFromImage(defaultImg);
+    }
+    powerUpSlowTexture.setSmooth(true);
+    
+    if (!powerUpSlowMotionTexture.loadFromFile("assets/images/powerup_slowmotion.png")) {
+        sf::Image defaultImg;
+        defaultImg.create(40, 40, sf::Color(128, 128, 255)); // Azul pastel
+        powerUpSlowMotionTexture.loadFromImage(defaultImg);
+    }
+    powerUpSlowMotionTexture.setSmooth(true);
     
     // Para que no se vea borroso si es pixel art
     blockTexture.setSmooth(true);
@@ -843,6 +869,18 @@ void Game::processEvents() {
 void Game::update() {
     float dt = clock.restart().asSeconds();
     
+    // Aplicar SlowMotion si está activo
+    bool hasSlowMotion = false;
+    for (const auto& pup : activePowerUps) {
+        if (pup.type == PowerUpType::SlowMotion) {
+            hasSlowMotion = true;
+            break;
+        }
+    }
+    if (hasSlowMotion) {
+        dt *= slowMotionMultiplier;  // Multiplicar por 0.5f = 50% de velocidad
+    }
+    
     // Actualizar efecto Matrix si está activo
     if (showMatrixEffect && state == GameState::GameOver) {
         updateMatrixEffect();
@@ -1137,18 +1175,27 @@ void Game::update() {
                     PowerUpType type;
                     const sf::Texture* texture;
                     
-                    if (rarity < 5) {  // 5% - MUY RARO: Vida extra
+                    if (rarity < 3) {  // 3% - MUY RARO: Vida extra (ventaja)
                         type = PowerUpType::ExtraLife;
                         texture = &powerUpExtraLifeTexture;
-                    } else if (rarity < 40) {  // 35% - SpeedPaddle
+                    } else if (rarity < 25) {  // 22% - SpeedPaddle (ventaja)
                         type = PowerUpType::SpeedPaddle;
                         texture = &powerUpSpeedTexture;
-                    } else if (rarity < 70) {  // 30% - ExpandPaddle
+                    } else if (rarity < 45) {  // 20% - ExpandPaddle (ventaja)
                         type = PowerUpType::ExpandPaddle;
                         texture = &powerUpExpandTexture;
-                    } else {  // 30% - MultiBall
+                    } else if (rarity < 60) {  // 15% - MultiBall (ventaja)
                         type = PowerUpType::MultiBall;
                         texture = &powerUpMultiBallTexture;
+                    } else if (rarity < 75) {  // 15% - ShrinkPaddle (DESVENTAJA)
+                        type = PowerUpType::ShrinkPaddle;
+                        texture = &powerUpShrinkTexture;
+                    } else if (rarity < 87) {  // 12% - SlowPaddle (DESVENTAJA)
+                        type = PowerUpType::SlowPaddle;
+                        texture = &powerUpSlowTexture;
+                    } else {  // 13% - SlowMotion (DESVENTAJA)
+                        type = PowerUpType::SlowMotion;
+                        texture = &powerUpSlowMotionTexture;
                     }
                     
                     PowerUp powerUp(brick.getPosition().x, brick.getPosition().y, type);
@@ -1221,16 +1268,17 @@ void Game::update() {
         }
     }
     
-    // Verificar si todos los bloques están destruidos
+    // Verificar si todos los bloques DESTRUCTIBLES están destruidos
     bool allDestroyed = true;
     for (const auto& brick : bricks) {
-        if (!brick.isDestroyed) {
+        // Solo contar bloques destructibles (no indestructibles)
+        if (!brick.isIndestructible && !brick.isDestroyed) {
             allDestroyed = false;
             break;
         }
     }
     
-    // Si todos los bloques están destruidos, avanzar al siguiente nivel
+    // Si todos los bloques destructibles están destruidos, avanzar al siguiente nivel
     if (allDestroyed && !bricks.empty()) {
         currentLevel++;  // Incrementar nivel
         
@@ -1322,6 +1370,48 @@ void Game::update() {
                             }
                         }
                         break;
+                    case PowerUpType::ShrinkPaddle:
+                        {
+                            ActivePowerUp newPowerUp;
+                            newPowerUp.type = PowerUpType::ShrinkPaddle;
+                            newPowerUp.elapsedTime = 0.f;
+                            newPowerUp.duration = shrinkPaddleDuration;
+                            newPowerUp.paddleSize = paddle.getSize();
+                            activePowerUps.push_back(newPowerUp);
+                            
+                            // Reducir el tamaño de la paleta a 0.7x (desventaja)
+                            sf::Vector2f newSize(paddle.getSize().x * 0.7f, paddle.getSize().y);
+                            paddle.setSize(newSize);
+                            paddle.setOrigin(newSize.x / 2.f, newSize.y / 2.f);
+                            paddle.setFillColor(sf::Color::Magenta);  // Color magenta para indicar desventaja
+                        }
+                        break;
+                    case PowerUpType::SlowPaddle:
+                        {
+                            ActivePowerUp newPowerUp;
+                            newPowerUp.type = PowerUpType::SlowPaddle;
+                            newPowerUp.elapsedTime = 0.f;
+                            newPowerUp.duration = slowPaddleDuration;
+                            newPowerUp.paddleSpeed = originalPaddleSpeed;
+                            activePowerUps.push_back(newPowerUp);
+                            
+                            // Reducir la velocidad de la paleta a 0.6x (desventaja)
+                            paddle.speed = originalPaddleSpeed * 0.6f;
+                            paddle.setFillColor(sf::Color::Yellow);  // Color amarillo para indicar desventaja
+                        }
+                        break;
+                    case PowerUpType::SlowMotion:
+                        {
+                            ActivePowerUp newPowerUp;
+                            newPowerUp.type = PowerUpType::SlowMotion;
+                            newPowerUp.elapsedTime = 0.f;
+                            newPowerUp.duration = slowMotionDuration;
+                            activePowerUps.push_back(newPowerUp);
+                            
+                            // El slowMotion se aplicará en el update() afectando el delta time
+                            paddle.setFillColor(sf::Color(173, 216, 230));  // Azul claro
+                        }
+                        break;
                 }
             }
             
@@ -1398,6 +1488,60 @@ void Game::update() {
                     paddle.setSize(sf::Vector2f(newWidth, paddle.getSize().y));
                     paddle.setOrigin(newWidth / 2.f, paddle.getSize().y / 2.f);
                 }
+            }
+            else if (activePowerUps[i].type == PowerUpType::ShrinkPaddle) {
+                // Al expirar ShrinkPaddle, restaurar el tamaño
+                // Contar cuántos ShrinkPaddle quedan después de eliminar este
+                int remainingShrinkCount = 0;
+                for (int j = 0; j < activePowerUps.size(); ++j) {
+                    if (j != i && activePowerUps[j].type == PowerUpType::ShrinkPaddle) {
+                        remainingShrinkCount++;
+                    }
+                }
+                
+                // Remover este ShrinkPaddle
+                activePowerUps.erase(activePowerUps.begin() + i);
+                
+                // Si no hay más ShrinkPaddle, volver al tamaño normal
+                if (remainingShrinkCount == 0) {
+                    paddle.setSize(sf::Vector2f(originalPaddleWidth, paddle.getSize().y));
+                    paddle.setOrigin(originalPaddleWidth / 2.f, paddle.getSize().y / 2.f);
+                    paddle.setFillColor(sf::Color::White);
+                } else {
+                    // Quedan más ShrinkPaddle, aumentar ligeramente el tamaño: multiplicar por 1/0.7
+                    float newWidth = paddle.getSize().x / 0.7f;
+                    paddle.setSize(sf::Vector2f(newWidth, paddle.getSize().y));
+                    paddle.setOrigin(newWidth / 2.f, paddle.getSize().y / 2.f);
+                    paddle.setFillColor(sf::Color::Magenta);
+                }
+            }
+            else if (activePowerUps[i].type == PowerUpType::SlowPaddle) {
+                // Al expirar SlowPaddle, restaurar la velocidad
+                // Contar cuántos SlowPaddle quedan después de eliminar este
+                int remainingSlowCount = 0;
+                for (int j = 0; j < activePowerUps.size(); ++j) {
+                    if (j != i && activePowerUps[j].type == PowerUpType::SlowPaddle) {
+                        remainingSlowCount++;
+                    }
+                }
+                
+                // Remover este SlowPaddle
+                activePowerUps.erase(activePowerUps.begin() + i);
+                
+                // Si no hay más SlowPaddle, volver a la velocidad normal
+                if (remainingSlowCount == 0) {
+                    paddle.speed = originalPaddleSpeed;
+                    paddle.setFillColor(sf::Color::White);
+                } else {
+                    // Quedan más SlowPaddle, aumentar ligeramente la velocidad: multiplicar por 1/0.6
+                    paddle.speed = paddle.speed / 0.6f;
+                    paddle.setFillColor(sf::Color::Yellow);
+                }
+            }
+            else if (activePowerUps[i].type == PowerUpType::SlowMotion) {
+                // Al expirar SlowMotion, se restablece automáticamente el dt
+                activePowerUps.erase(activePowerUps.begin() + i);
+                paddle.setFillColor(sf::Color::White);
             }
         }
     }
@@ -2568,6 +2712,15 @@ void Game::renderActivePowerUpsHUD() {
                 break;
             case PowerUpType::ExpandPaddle:
                 powerUpIcon.setTexture(powerUpExpandTexture);
+                break;
+            case PowerUpType::ShrinkPaddle:
+                powerUpIcon.setTexture(powerUpShrinkTexture);
+                break;
+            case PowerUpType::SlowPaddle:
+                powerUpIcon.setTexture(powerUpSlowTexture);
+                break;
+            case PowerUpType::SlowMotion:
+                powerUpIcon.setTexture(powerUpSlowMotionTexture);
                 break;
             default:
                 continue;  // No renderizar otros tipos

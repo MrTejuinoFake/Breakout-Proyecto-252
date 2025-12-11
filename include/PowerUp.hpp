@@ -4,10 +4,13 @@
 // Enumeración de tipos de power-up
 enum class PowerUpType
 {
-    SpeedPaddle,  // Aumenta la velocidad de la pala
-    ExpandPaddle, // Expande el tamaño de la pala
-    MultiBall,    // Genera bolas extra
-    ExtraLife     // Otorga una vida extra
+    SpeedPaddle,    // Aumenta la velocidad de la pala
+    ExpandPaddle,   // Expande el tamaño de la pala
+    MultiBall,      // Genera bolas extra
+    ExtraLife,      // Otorga una vida extra
+    ShrinkPaddle,   // Reduce el tamaño de la pala (DESVENTAJA)
+    SlowPaddle,     // Reduce la velocidad de la pala (DESVENTAJA)
+    SlowMotion      // Ralentiza el tiempo (DESVENTAJA)
 };
 
 class PowerUp : public sf::RectangleShape

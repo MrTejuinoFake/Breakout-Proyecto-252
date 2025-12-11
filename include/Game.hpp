@@ -89,6 +89,9 @@ private:
     sf::Texture powerUpExpandTexture;
     sf::Texture powerUpMultiBallTexture;
     sf::Texture powerUpExtraLifeTexture;
+    sf::Texture powerUpShrinkTexture;
+    sf::Texture powerUpSlowTexture;
+    sf::Texture powerUpSlowMotionTexture;
     
     // Paddle (base) y pelota
     Paddle paddle;
@@ -104,6 +107,10 @@ private:
     std::vector<ActivePowerUp> activePowerUps;  // Lista de poderes activos con sus duraciones
     float speedPaddleDuration;                  // Duración del efecto SpeedPaddle (segundos)
     float expandPaddleDuration;                 // Duración del efecto ExpandPaddle (segundos)
+    float shrinkPaddleDuration;                 // Duración del efecto ShrinkPaddle (segundos)
+    float slowPaddleDuration;                   // Duración del efecto SlowPaddle (segundos)
+    float slowMotionDuration;                   // Duración del efecto SlowMotion (segundos)
+    float slowMotionMultiplier;                 // Multiplicador de velocidad (0.5f = 50% lento)
     
     // Sistema de destello de pelota por velocidad
     sf::CircleShape ballGlow;      // Destello visual de la pelota
