@@ -231,9 +231,9 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     paddleRotation = 0.f;
     targetPaddleRotation = 0.f;
     
-    // Inicializar sistema de velocidad del paddle
-    hasPaddleSpeedPowerUp = false;
-    isPaddleSpeedActive = false;
+    // Inicializar sistema de power-ups activos
+    speedPaddleDuration = 8.f;      // 8 segundos de duración
+    expandPaddleDuration = 8.f;     // 8 segundos de duración
     
     // Inicializar destello de pelota
     ballGlow.setRadius(ball.getRadius() + 4.f);
@@ -790,14 +790,28 @@ void Game::processEvents() {
                     specialSound.play();
                 }
                 // Tecla S para activar/desactivar velocidad del paddle (solo si tiene el PowerUp y no es nivel 0)
-                else if (event.key.code == sf::Keyboard::S && hasPaddleSpeedPowerUp && currentLevel > 0) {
-                    isPaddleSpeedActive = !isPaddleSpeedActive;
-                    if (isPaddleSpeedActive) {
-                        paddle.speed = originalPaddleSpeed * 1.5f;
-                        paddle.setFillColor(sf::Color(173, 216, 230));  // Azul cielo pastel
-                    } else {
-                        paddle.speed = originalPaddleSpeed;
-                        paddle.setFillColor(sf::Color::White);  // Blanco normal
+                else if (event.key.code == sf::Keyboard::S && currentLevel > 0) {
+                    // Verificar si hay algún SpeedPaddle activo
+                    bool hasSpeedPaddle = false;
+                    for (const auto& pup : activePowerUps) {
+                        if (pup.type == PowerUpType::SpeedPaddle) {
+                            hasSpeedPaddle = true;
+                            break;
+                        }
+                    }
+                    
+                    if (hasSpeedPaddle) {
+                        // Alternar el estado del paddle: aplicar o remover el boost
+                        // Buscar si está actualmente boosteado
+                        bool isBoosted = (paddle.speed > originalPaddleSpeed + 10.f);
+                        
+                        if (isBoosted) {
+                            paddle.speed = originalPaddleSpeed;
+                            paddle.setFillColor(sf::Color::White);  // Blanco normal
+                        } else {
+                            paddle.speed = originalPaddleSpeed * 1.5f;
+                            paddle.setFillColor(sf::Color(173, 216, 230));  // Azul cielo pastel
+                        }
                     }
                 }
                 // Backspace para borrar
@@ -1133,6 +1147,7 @@ void Game::update() {
         // Limpiar PowerUps y bolas extra
         powerUps.clear();
         extraBalls.clear();
+        activePowerUps.clear();  // Limpiar poder-ups activos
         
         // Reiniciar paddle a tamaño y velocidad original
         sf::Vector2f originalSize(originalPaddleWidth, paddle.getSize().y);
@@ -1141,11 +1156,8 @@ void Game::update() {
         paddle.speed = originalPaddleSpeed;
         paddle.setFillColor(sf::Color::White);  // Color normal
         
-        // Resetear PowerUp de velocidad
-        hasPaddleSpeedPowerUp = false;
-        isPaddleSpeedActive = false;
-        
-        initLevel();     // Recrear todos los bloques
+        // Inicializar el nuevo nivel
+        initLevel();
         
         // Reiniciar bola pegada al paddle
         ball.isStuck = true;
@@ -1164,13 +1176,27 @@ void Game::update() {
                 // Aplicar efecto según tipo
                 switch(powerUp.getType()) {
                     case PowerUpType::SpeedPaddle:
-                        hasPaddleSpeedPowerUp = true;
-                        isPaddleSpeedActive = true;  // Activado por defecto al recogerlo
-                        paddle.speed = originalPaddleSpeed * 1.5f;
-                        paddle.setFillColor(sf::Color(173, 216, 230));  // Azul cielo pastel
+                        {
+                            ActivePowerUp newPowerUp;
+                            newPowerUp.type = PowerUpType::SpeedPaddle;
+                            newPowerUp.elapsedTime = 0.f;
+                            newPowerUp.duration = speedPaddleDuration;
+                            newPowerUp.paddleSpeed = originalPaddleSpeed;
+                            activePowerUps.push_back(newPowerUp);
+                            
+                            paddle.speed = originalPaddleSpeed * 1.5f;
+                            paddle.setFillColor(sf::Color(173, 216, 230));  // Azul cielo pastel
+                        }
                         break;
                     case PowerUpType::ExpandPaddle:
                         {
+                            ActivePowerUp newPowerUp;
+                            newPowerUp.type = PowerUpType::ExpandPaddle;
+                            newPowerUp.elapsedTime = 0.f;
+                            newPowerUp.duration = expandPaddleDuration;
+                            newPowerUp.paddleSize = paddle.getSize();
+                            activePowerUps.push_back(newPowerUp);
+                            
                             sf::Vector2f newSize(paddle.getSize().x * 1.5f, paddle.getSize().y);
                             paddle.setSize(newSize);
                             paddle.setOrigin(newSize.x / 2.f, newSize.y / 2.f);
@@ -1222,6 +1248,69 @@ void Game::update() {
             [](const PowerUp& p) { return !p.isActive(); }),
         powerUps.end()
     );
+    
+    // Actualizar duraciones de efectos activos
+    for (int i = activePowerUps.size() - 1; i >= 0; --i) {
+        activePowerUps[i].elapsedTime += dt;
+        
+        // Calcular porcentaje de progreso (0 = inicio, 1 = expiración)
+        float progress = activePowerUps[i].elapsedTime / activePowerUps[i].duration;
+        
+        if (activePowerUps[i].elapsedTime >= activePowerUps[i].duration) {
+            // Expiró este efecto
+            if (activePowerUps[i].type == PowerUpType::SpeedPaddle) {
+                // Al expirar un SpeedPaddle, reducir la velocidad proporcionalmente
+                // Contar cuántos SpeedPaddle quedan después de eliminar este
+                int remainingSpeedCount = 0;
+                for (int j = 0; j < activePowerUps.size(); ++j) {
+                    if (j != i && activePowerUps[j].type == PowerUpType::SpeedPaddle) {
+                        remainingSpeedCount++;
+                    }
+                }
+                
+                // Remover este SpeedPaddle
+                activePowerUps.erase(activePowerUps.begin() + i);
+                
+                // Calcular la nueva velocidad: reduce 1/1.5 por cada SpeedPaddle activo restante
+                // Si no hay más, vuelve a la original
+                if (remainingSpeedCount == 0) {
+                    // No quedan SpeedPaddle, volver a la velocidad original
+                    paddle.speed = originalPaddleSpeed;
+                    paddle.setFillColor(sf::Color::White);
+                } else {
+                    // Quedan más SpeedPaddle, reducir la velocidad: dividir entre 1.5
+                    paddle.speed = paddle.speed / 1.5f;
+                    paddle.setFillColor(sf::Color(173, 216, 230));  // Mantener color boost
+                }
+            } 
+            else if (activePowerUps[i].type == PowerUpType::ExpandPaddle) {
+                // Al expirar un ExpandPaddle, reducir el tamaño proporcionalmente
+                // Contar cuántos ExpandPaddle quedan después de eliminar este
+                int remainingExpandCount = 0;
+                for (int j = 0; j < activePowerUps.size(); ++j) {
+                    if (j != i && activePowerUps[j].type == PowerUpType::ExpandPaddle) {
+                        remainingExpandCount++;
+                    }
+                }
+                
+                // Remover este ExpandPaddle
+                activePowerUps.erase(activePowerUps.begin() + i);
+                
+                // Calcular el nuevo tamaño: reduce 1/1.5 por cada ExpandPaddle activo restante
+                // Si no hay más, vuelve al original
+                if (remainingExpandCount == 0) {
+                    // No quedan ExpandPaddle, volver al tamaño original
+                    paddle.setSize(sf::Vector2f(originalPaddleWidth, paddle.getSize().y));
+                    paddle.setOrigin(originalPaddleWidth / 2.f, paddle.getSize().y / 2.f);
+                } else {
+                    // Quedan más ExpandPaddle, reducir el tamaño: dividir entre 1.5
+                    float newWidth = paddle.getSize().x / 1.5f;
+                    paddle.setSize(sf::Vector2f(newWidth, paddle.getSize().y));
+                    paddle.setOrigin(newWidth / 2.f, paddle.getSize().y / 2.f);
+                }
+            }
+        }
+    }
     
     // Actualizar partículas
     updateParticles(dt);
@@ -1408,35 +1497,9 @@ void Game::render() {
             window.draw(infernoModeText);
         }
         
-        // Dibujar indicador de PowerUp de velocidad (si está disponible)
-        if (hasPaddleSpeedPowerUp) {
-            sf::Sprite powerUpIcon;
-            powerUpIcon.setTexture(powerUpSpeedTexture);
-            powerUpIcon.setScale(0.3f, 0.3f);  // Pequeño para el HUD
-            powerUpIcon.setPosition(window.getSize().x - 125.f, hudY + 15.f);
-            
-            // Si está desactivado, hacer gris
-            if (!isPaddleSpeedActive) {
-                powerUpIcon.setColor(sf::Color(100, 100, 100, 180));  // Gris
-            }
-            
-            window.draw(powerUpIcon);
-            
-            // Texto indicador "[S] Speed"
-            sf::Text speedText;
-            speedText.setFont(font);
-            speedText.setCharacterSize(12);
-            speedText.setString("[S]");
-            speedText.setPosition(window.getSize().x - 113.f, hudY + 30.f);
-            
-            if (isPaddleSpeedActive) {
-                speedText.setFillColor(sf::Color(173, 216, 230));  // Azul cielo
-            } else {
-                speedText.setFillColor(sf::Color(100, 100, 100));  // Gris
-            }
-            
-            window.draw(speedText);
-        }
+        // Dibujar HUD de power-ups activos con contador
+        renderActivePowerUpsHUD();
+        
     } else if (state == GameState::Controls) {
         renderControls();
     } else if (state == GameState::GameOver) {
@@ -1673,6 +1736,7 @@ void Game::resetGame() {
     // Limpiar PowerUps y bolas extra
     powerUps.clear();
     extraBalls.clear();
+    activePowerUps.clear();  // Limpiar poder-ups activos
     
     // Seleccionar nueva música aleatoria para el nuevo juego
     std::cout << "Seleccionando música aleatoria..." << std::endl;
@@ -1702,8 +1766,7 @@ void Game::resetGame() {
     paddle.setPosition(static_cast<float>(window.getSize().x) / 2.f, paddleY);
     
     // Resetear PowerUp de velocidad
-    hasPaddleSpeedPowerUp = false;
-    isPaddleSpeedActive = false;
+    activePowerUps.clear();
     
     // Reiniciar vidas al límite
     lives = maxLives;
@@ -2383,5 +2446,90 @@ void Game::updateBallTrails(float dt) {
             [](const BallTrail& t) { return t.lifetime <= 0.f; }),
         ballTrails.end()
     );
+}
+
+// Renderizar HUD de power-ups activos con contador
+void Game::renderActivePowerUpsHUD() {
+    if (activePowerUps.empty()) return;
+    
+    const float hudY = 65.f;
+    const float startX = window.getSize().x - 250.f;  // Posición inicial (derecha)
+    const float iconSize = 40.f;
+    const float spacing = 50.f;
+    
+    for (size_t i = 0; i < activePowerUps.size(); ++i) {
+        const ActivePowerUp& pup = activePowerUps[i];
+        float xPos = startX - (i * spacing);  // Posicionar de derecha a izquierda
+        
+        // Calcular tiempo restante
+        float timeRemaining = pup.duration - pup.elapsedTime;
+        if (timeRemaining < 0.f) timeRemaining = 0.f;
+        
+        // Calcular porcentaje (0 = expirado, 1 = inicio)
+        float progress = timeRemaining / pup.duration;
+        
+        // Obtener textura e icono según tipo
+        sf::Sprite powerUpIcon;
+        std::string timeText;
+        
+        switch (pup.type) {
+            case PowerUpType::SpeedPaddle:
+                powerUpIcon.setTexture(powerUpSpeedTexture);
+                break;
+            case PowerUpType::ExpandPaddle:
+                powerUpIcon.setTexture(powerUpExpandTexture);
+                break;
+            default:
+                continue;  // No renderizar otros tipos
+        }
+        
+        // Configurar icono
+        float scale = iconSize / std::max(powerUpIcon.getTexture()->getSize().x, 
+                                         powerUpIcon.getTexture()->getSize().y);
+        powerUpIcon.setScale(scale, scale);
+        powerUpIcon.setPosition(xPos, hudY);
+        
+        // Efecto de fade-out: la transparencia disminuye conforme se acaba el tiempo
+        sf::Uint8 alpha = static_cast<sf::Uint8>(progress * 255.f);
+        sf::Color iconColor(255, 255, 255, alpha);
+        powerUpIcon.setColor(iconColor);
+        
+        window.draw(powerUpIcon);
+        
+        // Dibujar contador de tiempo encima del icono
+        sf::Text timerText;
+        timerText.setFont(font);
+        timerText.setCharacterSize(14);
+        timerText.setString(std::to_string(static_cast<int>(timeRemaining)));
+        timerText.setPosition(xPos + 12.f, hudY - 5.f);
+        
+        // Color del texto según tiempo restante
+        if (timeRemaining < 2.f) {
+            timerText.setFillColor(sf::Color::Red);  // Rojo cuando está por expirar
+        } else {
+            timerText.setFillColor(sf::Color::White);
+        }
+        
+        window.draw(timerText);
+        
+        // Dibujar barra de progreso debajo
+        sf::RectangleShape progressBar(sf::Vector2f(40.f, 3.f));
+        progressBar.setPosition(xPos, hudY + 45.f);
+        progressBar.setFillColor(sf::Color(50, 50, 50, 150));  // Fondo gris
+        window.draw(progressBar);
+        
+        // Barra de progreso coloreada
+        sf::RectangleShape progressBarFill(sf::Vector2f(40.f * progress, 3.f));
+        progressBarFill.setPosition(xPos, hudY + 45.f);
+        
+        // Color según tipo de poder
+        if (pup.type == PowerUpType::SpeedPaddle) {
+            progressBarFill.setFillColor(sf::Color(173, 216, 230, 200));  // Azul cielo
+        } else if (pup.type == PowerUpType::ExpandPaddle) {
+            progressBarFill.setFillColor(sf::Color(144, 238, 144, 200));  // Verde claro
+        }
+        
+        window.draw(progressBarFill);
+    }
 }
 

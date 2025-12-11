@@ -24,9 +24,18 @@ public:
     bool isActive() const { return active; }     // Verifica si el power-up está activo
     void deactivate() { active = false; }        // Desactiva el power-up
     void setTexture(const sf::Texture *texture); // Asigna la textura al power-up
+    
+    // Sistema de duración del efecto
+    void setEffectDuration(float seconds);       // Establecer duración del efecto
+    float getEffectDuration() const { return effectDuration; }
+    float getEffectElapsedTime() const { return effectElapsedTime; }
+    bool hasEffectExpired() const { return effectElapsedTime >= effectDuration; }
+    void updateEffectTimer(float dt);            // Actualizar temporizador del efecto
 
 private:
-    PowerUpType type; // Tipo de power-up
-    float speed;      // Velocidad de caída del power-up
-    bool active;      // Indica si el power-up está activo
+    PowerUpType type;           // Tipo de power-up
+    float speed;                // Velocidad de caída del power-up
+    bool active;                // Indica si el power-up está activo
+    float effectDuration;       // Duración del efecto en segundos (0 = permanente)
+    float effectElapsedTime;    // Tiempo transcurrido desde la activación
 };

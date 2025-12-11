@@ -30,6 +30,15 @@ struct BallTrail {
     sf::Vector2f position;
 };
 
+// Instancia activa de un power-up
+struct ActivePowerUp {
+    PowerUpType type;           // Tipo de poder
+    float elapsedTime;          // Tiempo transcurrido
+    float duration;             // Duración total
+    sf::Vector2f paddleSize;    // Tamaño del paddle cuando se activó (para ExpandPaddle)
+    float paddleSpeed;          // Velocidad del paddle cuando se activó (para SpeedPaddle)
+};
+
 class Game {
 public:
     Game();
@@ -58,7 +67,8 @@ private:
     
     // Efectos visuales
     void createBrickParticles(sf::Vector2f position, sf::Color color);
-    void updateParticles(float dt); 
+    void updateParticles(float dt);
+    void renderActivePowerUpsHUD();         // Renderizar HUD de power-ups activos 
 
     sf::RenderWindow window;
     GameState state;
@@ -90,9 +100,10 @@ private:
     float originalPaddleSpeed;     // Para restaurar velocidad del paddle
     int maxLives;                  // Límite máximo de vidas
     
-    // Sistema de velocidad del paddle con PowerUp
-    bool hasPaddleSpeedPowerUp;    // Si tiene el PowerUp de velocidad
-    bool isPaddleSpeedActive;      // Si la velocidad está activada (tecla S)
+    // Sistema de power-ups activos (rastrea múltiples instancias)
+    std::vector<ActivePowerUp> activePowerUps;  // Lista de poderes activos con sus duraciones
+    float speedPaddleDuration;                  // Duración del efecto SpeedPaddle (segundos)
+    float expandPaddleDuration;                 // Duración del efecto ExpandPaddle (segundos)
     
     // Sistema de destello de pelota por velocidad
     sf::CircleShape ballGlow;      // Destello visual de la pelota
