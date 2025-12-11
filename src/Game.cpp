@@ -151,6 +151,14 @@ void Game::initLevel() {
             int hits = 1;
             sf::Color brickColor = rowColor;
             int pointValue = normalBlockPoints;  // Valor por defecto
+            bool isIndestructible = false;       // Por defecto no es indestructible
+            
+            // Calcular probabilidad de bloques indestructibles (a partir del nivel 2)
+            int indestructibleChance = 0;
+            if (currentLevel >= 2) {
+                indestructibleChance = 5 + (currentLevel - 2) * 3;  // 5% en nivel 2, 8% en nivel 3, etc.
+                if (indestructibleChance > 25) indestructibleChance = 25;  // Máximo 25%
+            }
             
             if (isSmallBlock) {
                 brickColor = sf::Color(255, 255, 0);  // Amarillo para bloques pequeños
@@ -158,12 +166,19 @@ void Game::initLevel() {
             } else {
                 int random = std::rand() % 100;
                 
-                if (random < purpleBlockChance) {  // % de probabilidad - BLOQUES MORADOS (3 golpes)
+                // Verificar si es un bloque indestructible
+                if (random < indestructibleChance) {
+                    isIndestructible = true;
+                    hits = 999;  // Valor alto para que no se pueda destruir normalmente
+                    brickColor = sf::Color(128, 128, 128);  // Gris para bloques indestructibles
+                    pointValue = 0;  // No dan puntos
+                }
+                else if (random < purpleBlockChance + indestructibleChance) {  // % de probabilidad - BLOQUES MORADOS (3 golpes)
                     hits = 3;
                     brickColor = sf::Color(150, 0, 200);  // Morado intenso
                     pointValue = purpleBlockPoints;  // Puntos por bloque morado
                 }
-                else if (random < redBlockChance) {  // % de probabilidad - BLOQUES ROJOS (2 golpes)
+                else if (random < redBlockChance + indestructibleChance) {  // % de probabilidad - BLOQUES ROJOS (2 golpes)
                     hits = 2;
                     brickColor = sf::Color(200, 0, 0);  // Rojo intenso
                     pointValue = redBlockPoints;  // Puntos por bloque rojo
@@ -175,6 +190,7 @@ void Game::initLevel() {
             // Guardar información adicional del bloque
             bricks.back().pointValue = pointValue;
             bricks.back().isSmallBlock = isSmallBlock;
+            bricks.back().isIndestructible = isIndestructible;
 
             // Marcar celdas
             for (int k = 0; k < widthInCells; ++k) {
@@ -949,9 +965,46 @@ void Game::update() {
             bounceSound.play();
         }
         
+        // Colisión bola extra con bloques indestructibles (solo rebote)
+        for (auto& brick : bricks) {
+            if (brick.isDestroyed) continue;
+            if (!brick.isIndestructible) continue;  // Solo procesar indestructibles
+            
+            if (extraBall.getGlobalBounds().intersects(brick.getGlobalBounds())) {
+                // Determinar de qué lado viene la pelota
+                float ballCenterX = extraBall.getPosition().x;
+                float ballCenterY = extraBall.getPosition().y;
+                float brickLeft = brick.getPosition().x;
+                float brickRight = brick.getPosition().x + brick.getSize().x;
+                float brickTop = brick.getPosition().y;
+                float brickBottom = brick.getPosition().y + brick.getSize().y;
+                
+                // Calcular la distancia a cada lado del brick
+                float distLeft = ballCenterX - brickLeft;
+                float distRight = brickRight - ballCenterX;
+                float distTop = ballCenterY - brickTop;
+                float distBottom = brickBottom - ballCenterY;
+                
+                // Encontrar el lado más cercano
+                float minDist = std::min({distLeft, distRight, distTop, distBottom});
+                
+                if (minDist == distLeft || minDist == distRight) {
+                    // Colisión desde los lados - invertir velocidad X
+                    extraBall.velocity.x = -extraBall.velocity.x;
+                } else {
+                    // Colisión desde arriba o abajo - invertir velocidad Y
+                    extraBall.velocity.y = -extraBall.velocity.y;
+                }
+                
+                bounceSound.play();
+                break; // Solo procesar una colisión por frame
+            }
+        }
+        
         // Colisión bola extra con bricks
         for (auto& brick : bricks) {
             if (brick.isDestroyed) continue;
+            if (brick.isIndestructible) continue;  // Saltar bloques indestructibles
             if (extraBall.getGlobalBounds().intersects(brick.getGlobalBounds())) {
                 brick.hitsRemaining--;
                 
@@ -1027,9 +1080,46 @@ void Game::update() {
         bounceSound.play();  // Sonido de rebote
     }
 
+    // Colisión con bloques indestructibles (solo rebote, sin destrucción)
+    for (auto& brick : bricks) {
+        if (brick.isDestroyed) continue;
+        if (!brick.isIndestructible) continue;  // Solo procesar indestructibles
+        
+        if (ball.getGlobalBounds().intersects(brick.getGlobalBounds())) {
+            // Determinar de qué lado viene la pelota
+            float ballCenterX = ball.getPosition().x;
+            float ballCenterY = ball.getPosition().y;
+            float brickLeft = brick.getPosition().x;
+            float brickRight = brick.getPosition().x + brick.getSize().x;
+            float brickTop = brick.getPosition().y;
+            float brickBottom = brick.getPosition().y + brick.getSize().y;
+            
+            // Calcular la distancia a cada lado del brick
+            float distLeft = ballCenterX - brickLeft;
+            float distRight = brickRight - ballCenterX;
+            float distTop = ballCenterY - brickTop;
+            float distBottom = brickBottom - ballCenterY;
+            
+            // Encontrar el lado más cercano
+            float minDist = std::min({distLeft, distRight, distTop, distBottom});
+            
+            if (minDist == distLeft || minDist == distRight) {
+                // Colisión desde los lados - invertir velocidad X
+                ball.velocity.x = -ball.velocity.x;
+            } else {
+                // Colisión desde arriba o abajo - invertir velocidad Y
+                ball.velocity.y = -ball.velocity.y;
+            }
+            
+            bounceSound.play();
+            break; // Solo procesar una colisión por frame
+        }
+    }
+
     // Colisión con ladrillos
     for (auto& brick : bricks) {
         if (brick.isDestroyed) continue;
+        if (brick.isIndestructible) continue;  // Saltar bloques indestructibles
         if (ball.getGlobalBounds().intersects(brick.getGlobalBounds())) {
             // Reducir golpes restantes
             brick.hitsRemaining--;

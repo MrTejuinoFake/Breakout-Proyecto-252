@@ -17,4 +17,5 @@ public:
     int maxHits = 1;           // Golpes máximos (para cambiar color)
     int pointValue = 10;       // Puntos que da al destruirse
     bool isSmallBlock = false; // Si es un bloque pequeño
+    bool isIndestructible = false; // Si es un bloque indestructible
 };
