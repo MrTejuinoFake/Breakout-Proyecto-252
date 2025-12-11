@@ -879,6 +879,32 @@ void Game::update() {
     }
     if (hasSlowMotion) {
         dt *= slowMotionMultiplier;  // Multiplicar por 0.5f = 50% de velocidad
+        
+        // Ralentizar la música
+        if (currentBackgroundMusic) {
+            currentBackgroundMusic->setPitch(slowMotionMultiplier);  // 0.5f = 50% de velocidad
+        }
+        if (currentLowLifeMusic) {
+            currentLowLifeMusic->setPitch(slowMotionMultiplier);
+        }
+        
+        // Ralentizar todos los efectos de sonido
+        bounceSound.setPitch(slowMotionMultiplier);
+        gameOverSound.setPitch(slowMotionMultiplier);
+        specialSound.setPitch(slowMotionMultiplier);
+    } else {
+        // Restaurar velocidad normal de la música y efectos
+        if (currentBackgroundMusic) {
+            currentBackgroundMusic->setPitch(1.0f);
+        }
+        if (currentLowLifeMusic) {
+            currentLowLifeMusic->setPitch(1.0f);
+        }
+        
+        // Restaurar velocidad normal de los efectos de sonido
+        bounceSound.setPitch(1.0f);
+        gameOverSound.setPitch(1.0f);
+        specialSound.setPitch(1.0f);
     }
     
     // Actualizar efecto Matrix si está activo
@@ -1029,9 +1055,23 @@ void Game::update() {
                 if (minDist == distLeft || minDist == distRight) {
                     // Colisión desde los lados - invertir velocidad X
                     extraBall.velocity.x = -extraBall.velocity.x;
+                    
+                    // Reposicionar la bola fuera del bloque
+                    if (minDist == distLeft) {
+                        extraBall.setPosition(brickLeft - extraR, ballCenterY);  // Empujar a la izquierda
+                    } else {
+                        extraBall.setPosition(brickRight + extraR, ballCenterY);  // Empujar a la derecha
+                    }
                 } else {
                     // Colisión desde arriba o abajo - invertir velocidad Y
                     extraBall.velocity.y = -extraBall.velocity.y;
+                    
+                    // Reposicionar la bola fuera del bloque
+                    if (minDist == distTop) {
+                        extraBall.setPosition(ballCenterX, brickTop - extraR);  // Empujar hacia arriba
+                    } else {
+                        extraBall.setPosition(ballCenterX, brickBottom + extraR);  // Empujar hacia abajo
+                    }
                 }
                 
                 bounceSound.play();
@@ -1141,12 +1181,28 @@ void Game::update() {
             // Encontrar el lado más cercano
             float minDist = std::min({distLeft, distRight, distTop, distBottom});
             
+            float r = ball.getRadius();
+            
             if (minDist == distLeft || minDist == distRight) {
                 // Colisión desde los lados - invertir velocidad X
                 ball.velocity.x = -ball.velocity.x;
+                
+                // Reposicionar la pelota fuera del bloque
+                if (minDist == distLeft) {
+                    ball.setPosition(brickLeft - r, ballCenterY);  // Empujar a la izquierda
+                } else {
+                    ball.setPosition(brickRight + r, ballCenterY);  // Empujar a la derecha
+                }
             } else {
                 // Colisión desde arriba o abajo - invertir velocidad Y
                 ball.velocity.y = -ball.velocity.y;
+                
+                // Reposicionar la pelota fuera del bloque
+                if (minDist == distTop) {
+                    ball.setPosition(ballCenterX, brickTop - r);  // Empujar hacia arriba
+                } else {
+                    ball.setPosition(ballCenterX, brickBottom + r);  // Empujar hacia abajo
+                }
             }
             
             bounceSound.play();
