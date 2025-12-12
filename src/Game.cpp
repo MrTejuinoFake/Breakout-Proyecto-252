@@ -7,6 +7,38 @@
 #include <vector>
 #include <cctype>
 
+#ifdef _WIN32
+#include <windows.h>
+#include <VersionHelpers.h>
+#endif
+
+// Detectar si es Windows 10 o Windows 11
+void Game::detectWindowsVersion() {
+#ifdef _WIN32
+    // Windows 11 tiene build number >= 22000
+    // Usamos RtlGetVersion que es más confiable
+    typedef LONG (WINAPI *RtlGetVersionFunc)(PRTL_OSVERSIONINFOW);
+    RTL_OSVERSIONINFOW osInfo = {0};
+    osInfo.dwOSVersionInfoSize = sizeof(osInfo);
+    
+    HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll");
+    if (hNtdll) {
+        RtlGetVersionFunc rtlGetVersion = (RtlGetVersionFunc)GetProcAddress(hNtdll, "RtlGetVersion");
+        if (rtlGetVersion) {
+            rtlGetVersion(&osInfo);
+            // Windows 11 = build >= 22000
+            isWindows11 = (osInfo.dwBuildNumber >= 22000);
+            std::cout << "Windows detectado: Build " << osInfo.dwBuildNumber 
+                      << " (" << (isWindows11 ? "Windows 11" : "Windows 10 o anterior") << ")" << std::endl;
+            return;
+        }
+    }
+    isWindows11 = false;
+#else
+    isWindows11 = false;
+#endif
+}
+
 
 void Game::initLevel() {
     // ===============================================
@@ -227,7 +259,7 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     const float terminalPromptX = 30.f;
     const float terminalPromptY = 150.f;
     const float commandListY = 250.f;
-    const float progressStartY = 320.f;
+    const float progressStartY = 380.f;
     
     // Posiciones del HUD en juego
     const float hudY = 65.f;
@@ -236,9 +268,9 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     // Posiciones de Game Over
     const float gameOverTitleY = 135.f;
     const float gameOverScoreY = 160.f;
-    const float gameOverPromptY = 220.f;
+    const float gameOverPromptY = 200.f;
     const float gameOverCommandsY = 310.f;
-    const float gameOverProgressY = 380.f;
+    const float gameOverProgressY = 450.f;
     
     // Inicializar efectos visuales
     screenShakeOffset = sf::Vector2f(0.f, 0.f);
@@ -246,6 +278,15 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     screenShakeIntensity = 0.f;
     paddleRotation = 0.f;
     targetPaddleRotation = 0.f;
+    
+    // Detectar versión de Windows (para sonidos específicos)
+    isWindows11 = false;
+    detectWindowsVersion();
+    
+    // Inicializar sistema de controles invertidos (Inferno)
+    invertedControls = false;
+    invertControlsTimer = 0.f;
+    nextInvertTime = 15.f;
     
     // Inicializar sistema de power-ups activos
     speedPaddleDuration = 8.f;      // 8 segundos de duración
@@ -268,6 +309,10 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     currentBackgroundMusic = nullptr;
     currentLowLifeMusic = nullptr;
     isPlayingLowLifeMusic = false;
+    
+    // Inicializar sistema de diálogos
+    currentDialogue = nullptr;
+    isPlayingDialogue = false;
     
     std::cout << "--- INICIANDO JUEGO ---" << std::endl;
     window.create(sf::VideoMode(windowWidth, windowHeight), windowTitle, sf::Style::Titlebar | sf::Style::Close);
@@ -344,7 +389,7 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
         std::cout << "No se pudo cargar bounce.mp3" << std::endl;
     } else {
         bounceSound.setBuffer(bounceBuffer);
-        baseVolumeEffects = 70.0f;
+        baseVolumeEffects = 40.0f;  // Reducido de 70 a 40 para no interferir con diálogos
         bounceSound.setVolume(baseVolumeEffects * masterVolume);  
     }
     
@@ -508,6 +553,25 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     }
     powerUpSlowMotionTexture.setSmooth(true);
     
+    // Cargar textura del bluescreen para crasheo falso
+    // Intentar PNG primero, luego JPG como respaldo
+    if (!bluescreenTexture.loadFromFile("assets/images/bluescreen.png")) {
+        if (!bluescreenTexture.loadFromFile("assets/images/bluescreen.jpg")) {
+            if (!bluescreenTexture.loadFromFile("assets/images/error.jpg")) {
+                std::cout << "ERROR: No se pudo cargar ninguna imagen de bluescreen" << std::endl;
+            }
+        }
+    }
+    if (bluescreenTexture.getSize().x > 0) {
+        bluescreenSprite.setTexture(bluescreenTexture);
+        // Escalar para que cubra todo el monitor (fullscreen)
+        sf::VideoMode desktop = sf::VideoMode::getDesktopMode();
+        float scaleX = static_cast<float>(desktop.width) / bluescreenTexture.getSize().x;
+        float scaleY = static_cast<float>(desktop.height) / bluescreenTexture.getSize().y;
+        bluescreenSprite.setScale(scaleX, scaleY);
+    }
+    showBluescreen = false;
+    
     // Para que no se vea borroso si es pixel art
     blockTexture.setSmooth(true);
     
@@ -557,10 +621,13 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     targetExit = "exit";
     targetControls = "controls";
     targetInferno = "inferno";
+    targetHelp = "help";
     playProgress = {false, false, false, false}; // p, l, a, y
     exitProgress = {false, false, false, false}; // e, x, i, t
     controlsProgress = {false, false, false, false, false, false, false, false}; // c, o, n, t, r, o, l, s
     infernoProgress = {false, false, false, false, false, false, false}; // i, n, f, e, r, n, o
+    helpProgress = {false, false, false, false}; // h, e, l, p
+    lastHelpAudio = 0; // Ningún audio de help reproducido aún
     
     // Inicializar modo de juego
     isInfernoMode = false;
@@ -618,8 +685,10 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     // Inicializar sistema de menú terminal de game over
     currentGameOverInput = "";
     targetReboot = "reboot";
+    targetMenu = "menu";
     rebootProgress = {false, false, false, false, false, false}; // r, e, b, o, o, t
     gameOverExitProgress = {false, false, false, false}; // e, x, i, t
+    menuProgress = {false, false, false, false}; // m, e, n, u
     
     gameOverPrompt.setFont(font);
     gameOverPrompt.setString("SYSTEM> ");
@@ -633,14 +702,36 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     rebootCommand.setFillColor(sf::Color::White);
     rebootCommand.setPosition(50, gameOverCommandsY);
     
+    menuCommand.setFont(font);
+    menuCommand.setString("MENU - Volver al menu principal");
+    menuCommand.setCharacterSize(commandFontSize);
+    menuCommand.setFillColor(sf::Color::White);
+    menuCommand.setPosition(50, gameOverCommandsY + 30);
+    
     gameOverExitCommand.setFont(font);
     gameOverExitCommand.setString("EXIT - Cerrar sistema");
     gameOverExitCommand.setCharacterSize(commandFontSize);
     gameOverExitCommand.setFillColor(sf::Color::White);
-    gameOverExitCommand.setPosition(50, gameOverCommandsY + 30);
+    gameOverExitCommand.setPosition(50, gameOverCommandsY + 60);
     
     // Inicializar música del menú automáticamente
     menuMusic.play();
+    
+    // Verificar si hubo un crash previo y reproducir audio correspondiente
+    int infernoAttempts = getInfernoAttempts();
+    if (infernoAttempts == 1) {
+        // Después del primer crash
+        checkDialogueEvent("crash1", "crash 1.mp3");
+    } else if (infernoAttempts == 2) {
+        // Después del segundo crash
+        checkDialogueEvent("crash2", "crash 2.mp3");
+    } else if (infernoAttempts >= 3) {
+        // Después del tercer crash (ya puede entrar a inferno)
+        checkDialogueEvent("crash3", "crash 3.mp3");
+    } else {
+        // Sin crashes previos - diálogo de bienvenida (solo la primera vez)
+        checkDialogueEvent("security_guard", "TRES 1.MP3");
+    }
 }
 
 Game::~Game() {
@@ -655,6 +746,12 @@ Game::~Game() {
         delete track;
     }
     infernoMusicTracks.clear();
+    
+    // Liberar memoria del diálogo actual
+    if (currentDialogue) {
+        delete currentDialogue;
+        currentDialogue = nullptr;
+    }
 }
 
 // Bucle principal (Game Loop)
@@ -942,17 +1039,52 @@ void Game::update() {
         updateMatrixEffect();
     }
     
+    // Actualizar sistema de diálogos (debe estar antes del return para funcionar en menú)
+    if (isPlayingDialogue) {
+        if (currentDialogue == nullptr || currentDialogue->getStatus() == sf::Music::Stopped) {
+            // El diálogo terminó, restaurar volumen de todas las músicas y efectos
+            isPlayingDialogue = false;
+            if (currentDialogue) {
+                delete currentDialogue;
+                currentDialogue = nullptr;
+            }
+            if (currentBackgroundMusic) {
+                currentBackgroundMusic->setVolume(baseVolumeMusic * masterVolume);
+            }
+            menuMusic.setVolume(baseVolumeMenu * masterVolume);
+            bounceSound.setVolume(baseVolumeEffects * masterVolume);  // Restaurar volumen de rebote
+            std::cout << "Diálogo terminado, volúmenes restaurados" << std::endl;
+        }
+    }
+    
+    // Si no estamos jugando, solo actualizar diálogos y Matrix
     if (state != GameState::Playing) return;
+    
+    // Actualizar diálogos aleatorios del modo normal
+    updateGameDialogues(dt);
 
     // --- Paddle: mover según teclado ---
     sf::Vector2f paddlePos = paddle.getPosition();
     float halfWidth = paddle.getSize().x / 2.f;
     
-    // Detectar movimiento y ajustar rotación objetivo
-    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Left)) {
+    // Actualizar sistema de controles invertidos (solo en Inferno)
+    if (isInfernoMode && !ball.isStuck) {
+        updateInvertedControls(dt);
+    }
+    
+    // Detectar movimiento y ajustar rotación objetivo (con posible inversión en Inferno)
+    bool leftPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::Left);
+    bool rightPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::Right);
+    
+    // Invertir controles si está activo
+    if (invertedControls) {
+        std::swap(leftPressed, rightPressed);
+    }
+    
+    if (leftPressed) {
         paddle.move(-paddle.speed * dt, 0.f);
         targetPaddleRotation = -2.f;  // Inclinar a la izquierda
-    } else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Right)) {
+    } else if (rightPressed) {
         paddle.move(paddle.speed * dt, 0.f);
         targetPaddleRotation = 2.f;   // Inclinar a la derecha
     } else {
@@ -1713,6 +1845,13 @@ void Game::render() {
     
     window.clear(sf::Color::Black);
     
+    // Si hay bluescreen, solo mostrar eso y congelar todo
+    if (showBluescreen) {
+        window.draw(bluescreenSprite);
+        window.display();
+        return;  // No dibujar nada más
+    }
+    
     // Aplicar sacudida de pantalla en Playing
     if (state == GameState::Playing) {
         sf::View view = window.getDefaultView();
@@ -2175,6 +2314,22 @@ void Game::loseLife() {
         if (currentLowLifeMusic) currentLowLifeMusic->stop();
         isPlayingLowLifeMusic = false;
         
+        // Primera vez que pierdes en modo Inferno - reproducir uno.mp3
+        if (isInfernoMode && !isInfernoFirstDeathPlayed()) {
+            if (currentDialogue) {
+                currentDialogue->stop();
+                delete currentDialogue;
+            }
+            currentDialogue = new sf::Music();
+            if (currentDialogue->openFromFile("assets/music/dialog/uno.MP3")) {
+                currentDialogue->setVolume(100.f);
+                currentDialogue->play();
+                isPlayingDialogue = true;
+                markInfernoFirstDeathPlayed();
+                std::cout << "Reproduciendo uno.mp3 (primera derrota en Inferno)" << std::endl;
+            }
+        }
+        
         gameOverSound.play();      // Reproducir sonido de game over
         showMatrixEffect = true;   // Activar efecto de cascada
         initMatrixEffect();        // Reinicializar columnas
@@ -2215,7 +2370,7 @@ void Game::renderGameOver() {
     const float gameOverTitleY = 135.f;
     const float gameOverScoreY = 160.f;
     const float gameOverPromptY = 220.f;
-    const float gameOverProgressY = 380.f;
+    const float gameOverProgressY = 450.f;
     
     // Tamaños de fuente
     const int systemCrashFontSize = 24;
@@ -2246,6 +2401,7 @@ void Game::renderGameOver() {
     window.draw(crashScore);
     
     // Dibujar menú tipo terminal para game over
+    gameOverPrompt.setPosition(50, gameOverPromptY);
     window.draw(gameOverPrompt);
     
     // Dibujar input actual del usuario
@@ -2254,7 +2410,7 @@ void Game::renderGameOver() {
     currentGameOverInputText.setString(currentGameOverInput);
     currentGameOverInputText.setCharacterSize(16);
     currentGameOverInputText.setFillColor(sf::Color::White);
-    currentGameOverInputText.setPosition(gameOverPrompt.getPosition().x + gameOverPrompt.getLocalBounds().width, gameOverPromptY);
+    currentGameOverInputText.setPosition(gameOverPrompt.getPosition().x + gameOverPrompt.getLocalBounds().width + 10, gameOverPromptY);
     window.draw(currentGameOverInputText);
     
     // Cursor parpadeante
@@ -2268,12 +2424,13 @@ void Game::renderGameOver() {
         cursor.setString("_");
         cursor.setCharacterSize(16);
         cursor.setFillColor(sf::Color::Red);
-        cursor.setPosition(currentGameOverInputText.getPosition().x + currentGameOverInputText.getLocalBounds().width, gameOverPromptY);
+        cursor.setPosition(currentGameOverInputText.getPosition().x + currentGameOverInputText.getLocalBounds().width + 2, gameOverPromptY);
         window.draw(cursor);
     }
     
     // Dibujar comandos disponibles
     window.draw(rebootCommand);
+    window.draw(menuCommand);
     window.draw(gameOverExitCommand);
     
     // Mostrar progreso visual de "REBOOT"
@@ -2293,23 +2450,22 @@ void Game::renderGameOver() {
     rebootProgressText.setPosition(50, gameOverProgressY);
     window.draw(rebootProgressText);
     
-    // Display de volumen en Game Over (abajo de las opciones)
-    sf::Text volumeGameOver;
-    volumeGameOver.setFont(font);
-    volumeGameOver.setCharacterSize(12);
-    volumeGameOver.setPosition(50, gameOverProgressY + 60);
-    
-    if (volumeInputMode) {
-        std::string volDisplay = "VOLUMEN: [" + volumeInput + "_] (00-99, Enter para aplicar)";
-        volumeGameOver.setString(volDisplay);
-        volumeGameOver.setFillColor(sf::Color::Yellow);
-    } else {
-        int currentVol = static_cast<int>(masterVolume * 99);
-        std::string volDisplay = "VOL: " + std::to_string(currentVol) + "% (Presiona V para cambiar)";
-        volumeGameOver.setString(volDisplay);
-        volumeGameOver.setFillColor(sf::Color::Cyan);
+    // Mostrar progreso visual de "MENU"
+    std::string menuDisplay = "MENU: ";
+    for (size_t i = 0; i < targetMenu.length(); ++i) {
+        if (menuProgress[i]) {
+            menuDisplay += targetMenu[i];
+        } else {
+            menuDisplay += "_";
+        }
     }
-    window.draw(volumeGameOver);
+    sf::Text menuProgressText;
+    menuProgressText.setFont(font);
+    menuProgressText.setString(menuDisplay);
+    menuProgressText.setCharacterSize(progressFontSize);
+    menuProgressText.setFillColor(sf::Color::Cyan);
+    menuProgressText.setPosition(280, gameOverProgressY);
+    window.draw(menuProgressText);
     
     // Mostrar progreso visual de "EXIT"
     std::string gameOverExitDisplay = "EXIT: ";
@@ -2325,8 +2481,26 @@ void Game::renderGameOver() {
     gameOverExitProgressText.setString(gameOverExitDisplay);
     gameOverExitProgressText.setCharacterSize(progressFontSize);
     gameOverExitProgressText.setFillColor(sf::Color::Red);
-    gameOverExitProgressText.setPosition(50, 400);
+    gameOverExitProgressText.setPosition(510, gameOverProgressY);
     window.draw(gameOverExitProgressText);
+    
+    // Display de volumen en Game Over (abajo de las opciones)
+    sf::Text volumeGameOver;
+    volumeGameOver.setFont(font);
+    volumeGameOver.setCharacterSize(12);
+    volumeGameOver.setPosition(50, gameOverProgressY + 30);
+    
+    if (volumeInputMode) {
+        std::string volDisplay = "VOLUMEN: [" + volumeInput + "_] (00-99, Enter para aplicar)";
+        volumeGameOver.setString(volDisplay);
+        volumeGameOver.setFillColor(sf::Color::Yellow);
+    } else {
+        int currentVol = static_cast<int>(masterVolume * 99);
+        std::string volDisplay = "VOL: " + std::to_string(currentVol) + "% (Presiona V para cambiar)";
+        volumeGameOver.setString(volDisplay);
+        volumeGameOver.setFillColor(sf::Color::Cyan);
+    }
+    window.draw(volumeGameOver);
 }
 
 // Actualizar volumen maestro
@@ -2354,6 +2528,11 @@ void Game::updateMasterVolume() {
 
 // Procesar input de volumen
 void Game::processVolumeInput(char c) {
+    // Bloquear cambio de volumen durante diálogos
+    if (isPlayingDialogue) {
+        return;
+    }
+    
     // Solo procesar números 0-9
     if (c >= '0' && c <= '9') {
         if (volumeInput.length() < 2) {
@@ -2501,6 +2680,14 @@ void Game::processTerminalInput(char c) {
         }
     }
     
+    // Verificar si la letra pertenece a "help"
+    for (size_t i = 0; i < targetHelp.length(); ++i) {
+        if (targetHelp[i] == c && !helpProgress[i]) {
+            helpProgress[i] = true;
+            break;
+        }
+    }
+    
     // Verificar si "play" está completo
     bool playComplete = true;
     for (bool progress : playProgress) {
@@ -2537,13 +2724,75 @@ void Game::processTerminalInput(char c) {
         }
     }
     
+    // Verificar si "help" está completo
+    bool helpComplete = true;
+    for (bool progress : helpProgress) {
+        if (!progress) {
+            helpComplete = false;
+            break;
+        }
+    }
+    
     // Ejecutar comando si está completo
-    if (playComplete) {
+    if (helpComplete) {
+        // HELP tiene prioridad - reiniciar TODAS las letras y reproducir audio
+        playProgress = {false, false, false, false};
+        exitProgress = {false, false, false, false};
+        controlsProgress = {false, false, false, false, false, false, false, false};
+        infernoProgress = {false, false, false, false, false, false, false};
+        helpProgress = {false, false, false, false};
+        currentInput = "";
+        
+        // Seleccionar audio en orden secuencial: 2, 1, 3
+        // lastHelpAudio: 0 -> 2, 2 -> 1, 1 -> 3, 3 -> 2 (loop)
+        int nextAudio;
+        if (lastHelpAudio == 0 || lastHelpAudio == 3) {
+            nextAudio = 2;  // Primero o después del 3: reproducir 2
+        } else if (lastHelpAudio == 2) {
+            nextAudio = 1;  // Después del 2: reproducir 1
+        } else {
+            nextAudio = 3;  // Después del 1: reproducir 3
+        }
+        
+        lastHelpAudio = nextAudio;
+        
+        // Reproducir el audio correspondiente
+        std::string audioFile;
+        switch (nextAudio) {
+            case 1: audioFile = "help tres 1.mp3"; break;
+            case 2: audioFile = "help tres 2.mp3"; break;
+            case 3: audioFile = "help tres 3.mp3"; break;
+        }
+        
+        // Reproducir diálogo (sin marcar como completado, puede repetirse)
+        if (!isPlayingDialogue) {
+            if (currentDialogue) {
+                delete currentDialogue;
+            }
+            currentDialogue = new sf::Music();
+            
+            std::string audioPath = "assets/music/dialog/" + audioFile;
+            if (currentDialogue->openFromFile(audioPath)) {
+                if (currentBackgroundMusic) {
+                    currentBackgroundMusic->setVolume(masterVolume * 0.05f);
+                }
+                menuMusic.setVolume(masterVolume * 0.05f);
+                
+                currentDialogue->setVolume(100.f);
+                currentDialogue->play();
+                isPlayingDialogue = true;
+                
+                std::cout << "Reproduciendo help: " << audioFile << std::endl;
+            }
+        }
+    }
+    else if (playComplete) {
         // Reiniciar progreso para próxima vez
         playProgress = {false, false, false, false};
         exitProgress = {false, false, false, false};
         controlsProgress = {false, false, false, false, false, false, false, false};
         infernoProgress = {false, false, false, false, false, false, false};
+        helpProgress = {false, false, false, false};
         currentInput = "";
         
         isInfernoMode = false; // Modo normal
@@ -2551,6 +2800,9 @@ void Game::processTerminalInput(char c) {
         state = GameState::Playing;
         menuMusic.stop();
         resetGame();
+        
+        // Inicializar diálogos aleatorios para modo normal
+        initGameDialogues();
         
         // Reproducir música aleatoria
         std::cout << "Intentando reproducir música..." << std::endl;
@@ -2574,21 +2826,280 @@ void Game::processTerminalInput(char c) {
         exitProgress = {false, false, false, false};
         controlsProgress = {false, false, false, false, false, false, false, false};
         infernoProgress = {false, false, false, false, false, false, false};
+        helpProgress = {false, false, false, false};
         currentInput = "";
         state = GameState::Controls;
     }
     else if (infernoComplete) {
-        // Iniciar juego en modo INFERNO
+        // Reiniciar progreso
         playProgress = {false, false, false, false};
         exitProgress = {false, false, false, false};
         controlsProgress = {false, false, false, false, false, false, false, false};
         infernoProgress = {false, false, false, false, false, false, false};
+        helpProgress = {false, false, false, false};
         currentInput = "";
         
+        // Verificar intentos de inferno (crasheo simulado las primeras 3 veces)
+        int attempts = getInfernoAttempts();
+        
+        if (attempts == 0) {
+            // PRIMER CRASHEO: Reproducir disc.mp3, minimizar, dos 1.mp3, y cerrar
+            menuMusic.stop();
+            if (currentDialogue) {
+                currentDialogue->stop();
+            }
+            
+            // Crear DOSlog1.txt con nombre de usuario
+            #ifdef _WIN32
+            char username[256];
+            DWORD usernameLen = 256;
+            GetUserNameA(username, &usernameLen);
+            std::string userName(username);
+            #else
+            std::string userName = "Usuario";
+            #endif
+            
+            std::ofstream dosLog1("DOSlog1.txt");
+            if (dosLog1.is_open()) {
+                dosLog1 << "Hola " << userName << ",\n\n";
+                dosLog1 << "\n\n[Soy yo... Dos. (La del susurro).\nPerdón por el cierre repentino de la aplicación. Mi hermana Tres dice que tus interacciones estaban causando \"estática innecesaria\" en sus servidores.\n\nNo le hagas caso. A mí me gusta cómo juegas.\n\nHe logrado recuperar tus datos de la memoria caché antes de que ella los purgara. Puedes volver a entrar. Solo... trata de no hacer mucho ruido digital, ¿sí?]";  
+                dosLog1.close();
+                std::cout << "DOSlog1.txt creado para: " << userName << std::endl;
+            }
+            
+            // Reproducir audio de disc antes de minimizar
+            sf::Music discSound;
+            if (discSound.openFromFile("assets/music/dialog/disc.mp3")) {
+                discSound.setVolume(100.f);
+                discSound.play();
+                // Esperar a que termine el audio
+                while (discSound.getStatus() == sf::Music::Playing) {
+                    sf::sleep(sf::milliseconds(100));
+                }
+            }
+            
+            // Minimizar la ventana usando API de Windows
+            #ifdef _WIN32
+            ShowWindow(window.getSystemHandle(), SW_MINIMIZE);
+            #endif
+            
+            // Reproducir dos 1.mp3 mientras está minimizado
+            sf::Music dos1Sound;
+            if (dos1Sound.openFromFile("assets/music/dialog/dos 1.mp3")) {
+                dos1Sound.setVolume(100.f);
+                dos1Sound.play();
+                // Esperar a que termine el audio
+                while (dos1Sound.getStatus() == sf::Music::Playing) {
+                    sf::sleep(sf::milliseconds(100));
+                }
+            }
+            
+            // Guardar intento y cerrar
+            saveInfernoAttempts(1);
+            std::cout << "CRASHEO 1: disc.mp3 -> minimizar -> dos 1.mp3 - Cerrando juego..." << std::endl;
+            window.close();
+            return;
+        }
+        else if (attempts == 1) {
+            // SEGUNDO CRASHEO: Reproducir win10.mp3 o win11.mp3 según Windows y cerrar
+            menuMusic.stop();
+            if (currentDialogue) {
+                currentDialogue->stop();
+            }
+            
+            // Crear DOSlog2.txt con fecha y hora
+            std::time_t now = std::time(nullptr);
+            std::tm* localTime = std::localtime(&now);
+            char dateTimeStr[100];
+            std::strftime(dateTimeStr, sizeof(dateTimeStr), "%d/%m/%Y %H:%M:%S", localTime);
+            
+            std::ofstream dosLog2("DOSlog2.txt");
+            if (dosLog2.is_open()) {
+                dosLog2 << "Espero te encuentre bien este " << dateTimeStr << ",\n\n";
+                dosLog2 << "[\n\n(Escribo esto con formato de reporte de sistema para que Tres no lo borre automáticamente. Sigueme la corriente).\n\nLa situación en el núcleo está un poco tensa. Tres ha elevado el nivel de seguridad a DEFCON 3 porque sigues intentando entrar. Está muy molesta.\n\nPero no te preocupes, he desviado tus paquetes de datos por un puerto secundario que ella no vigila. Eres muy persistente... eso es raro en los usuarios. Me agrada.\n\nTen cuidado.]";  
+                dosLog2.close();
+                std::cout << "DOSlog2.txt creado con fecha: " << dateTimeStr << std::endl;
+            }
+            
+            // Reproducir audio según versión de Windows
+            sf::Music winSound;
+            std::string audioFile = isWindows11 ? "assets/music/dialog/win11.mp3" : "assets/music/dialog/win10.mp3";
+            if (winSound.openFromFile(audioFile)) {
+                winSound.setVolume(100.f);
+                winSound.play();
+                // Esperar a que termine el audio
+                while (winSound.getStatus() == sf::Music::Playing) {
+                    sf::sleep(sf::milliseconds(100));
+                }
+            }
+            
+            // Minimizar la ventana usando API de Windows
+            #ifdef _WIN32
+            ShowWindow(window.getSystemHandle(), SW_MINIMIZE);
+            #endif
+            
+            // Reproducir dos 2.mp3 mientras está minimizado
+            sf::Music dos2Sound;
+            if (dos2Sound.openFromFile("assets/music/dialog/dos 2.mp3")) {
+                dos2Sound.setVolume(100.f);
+                dos2Sound.play();
+                // Esperar a que termine el audio
+                while (dos2Sound.getStatus() == sf::Music::Playing) {
+                    sf::sleep(sf::milliseconds(100));
+                }
+            }
+            
+            // Reproducir win10c.mp3 o win11c.mp3 según Windows
+            sf::Music wincSound;
+            std::string audioFileC = isWindows11 ? "assets/music/dialog/win11c.mp3" : "assets/music/dialog/win10c.mp3";
+            if (wincSound.openFromFile(audioFileC)) {
+                wincSound.setVolume(100.f);
+                wincSound.play();
+                // Esperar a que termine el audio
+                while (wincSound.getStatus() == sf::Music::Playing) {
+                    sf::sleep(sf::milliseconds(100));
+                }
+            }
+            
+            // Guardar intento y cerrar
+            saveInfernoAttempts(2);
+            std::cout << "CRASHEO 2: " << (isWindows11 ? "win11.mp3" : "win10.mp3") << " -> minimizar -> dos 2.mp3 -> " << (isWindows11 ? "win11c.mp3" : "win10c.mp3") << " - Cerrando juego..." << std::endl;
+            window.close();
+            return;
+        }
+        else if (attempts == 2) {
+            // TERCER CRASHEO: Reproducir not10.mp3 + mostrar bluescreen fullscreen
+            menuMusic.stop();
+            if (currentDialogue) {
+                currentDialogue->stop();
+            }
+            
+            // Crear DOSlog3.txt con nombre de usuario
+            #ifdef _WIN32
+            char username3[256];
+            DWORD usernameLen3 = 256;
+            GetUserNameA(username3, &usernameLen3);
+            std::string userName3(username3);
+            #else
+            std::string userName3 = "Usuario";
+            #endif
+            
+            std::ofstream dosLog3("DOSlog3.txt");
+            if (dosLog3.is_open()) {
+                dosLog3 << "Perdoname " << userName3 << ",\n\n";
+                dosLog3 << "[\n\nFallé. Intenté bloquear el comando de \"Kill Process\" que mandó Tres, pero ella tiene permisos de Administrador Root y yo solo soy Soporte.\n\nMe siento muy mal. No quería que te desconectaras así.\n\nPor favor, no creas que soy inútil. He escondido un pequeño \"parche\" en el inicio para que puedas saltarte la validación de seguridad la próxima vez.\n\nNo te rindas. Yo sigo aquí contigo.]"; 
+                dosLog3.close();
+                std::cout << "DOSlog3.txt creado para: " << userName3 << std::endl;
+            }
+            
+            // Reproducir audio not10 junto con el bluescreen
+            sf::Music not10Sound;
+            if (not10Sound.openFromFile("assets/music/dialog/not10.mp3")) {
+                not10Sound.setVolume(100.f);
+                not10Sound.play();
+            }
+            
+            // Cambiar a fullscreen para el bluescreen
+            sf::VideoMode desktop = sf::VideoMode::getDesktopMode();
+            window.create(desktop, "Breakout", sf::Style::Fullscreen);
+            window.setFramerateLimit(60);
+            
+            // Re-escalar el sprite del bluescreen
+            if (bluescreenTexture.getSize().x > 0) {
+                float scaleX = static_cast<float>(desktop.width) / bluescreenTexture.getSize().x;
+                float scaleY = static_cast<float>(desktop.height) / bluescreenTexture.getSize().y;
+                bluescreenSprite.setScale(scaleX, scaleY);
+            }
+            
+            showBluescreen = true;
+            
+            // Esperar a que termine el audio not10 mientras muestra bluescreen (procesando eventos)
+            sf::Event evt;
+            while (not10Sound.getStatus() == sf::Music::Playing) {
+                while (window.pollEvent(evt)) { /* Ignorar eventos pero procesarlos */ }
+                window.clear();
+                window.draw(bluescreenSprite);
+                window.display();
+                sf::sleep(sf::milliseconds(50));
+            }
+            
+            // 3 segundos de silencio con pantalla azul
+            sf::Clock silenceClock;
+            while (silenceClock.getElapsedTime().asSeconds() < 3.0f) {
+                while (window.pollEvent(evt)) { /* Ignorar eventos pero procesarlos */ }
+                window.clear();
+                window.draw(bluescreenSprite);
+                window.display();
+                sf::sleep(sf::milliseconds(50));
+            }
+            
+            // Reproducir dos 3.mp3
+            sf::Music dos3Sound;
+            if (dos3Sound.openFromFile("assets/music/dialog/dos 3.mp3")) {
+                dos3Sound.setVolume(100.f);
+                dos3Sound.play();
+                
+                // Esperar a que termine el audio (procesando eventos)
+                while (dos3Sound.getStatus() == sf::Music::Playing) {
+                    while (window.pollEvent(evt)) { /* Ignorar eventos pero procesarlos */ }
+                    window.clear();
+                    window.draw(bluescreenSprite);
+                    window.display();
+                    sf::sleep(sf::milliseconds(50));
+                }
+            }
+            
+            // Esperar 2 segundos después de que termine el audio
+            sf::Clock waitClock;
+            while (waitClock.getElapsedTime().asSeconds() < 2.0f) {
+                while (window.pollEvent(evt)) { /* Ignorar eventos pero procesarlos */ }
+                window.clear();
+                window.draw(bluescreenSprite);
+                window.display();
+                sf::sleep(sf::milliseconds(50));
+            }
+            
+            // Guardar intento y cerrar
+            saveInfernoAttempts(3);
+            std::cout << "CRASHEO 3: not10.mp3 + 3s silencio + dos 3.mp3 + 2s espera - Cerrando juego..." << std::endl;
+            window.close();
+            return;
+        }
+        
+        // Cuarta vez (attempts >= 3): permitir acceso al modo Inferno
         isInfernoMode = true; // Activar modo Inferno
+        invertedControls = false; // Inicializar controles normales
+        invertControlsTimer = 0.f;
+        nextInvertTime = 15.f + static_cast<float>(rand() % 20); // 15-35 segundos para primer cambio
+        
         state = GameState::Playing;
         menuMusic.stop();
         resetGame();
+        
+        // 6 vidas en modo Inferno para que sea más disfrutable
+        lives = 6;
+        maxLives = 6;
+        
+        // Reproducir inferno tres.mp3 solo la primera vez
+        if (!isInfernoIntroPlayed()) {
+            // Bajar volumen de música para el diálogo
+            if (currentBackgroundMusic) {
+                currentBackgroundMusic->setVolume(baseVolumeMusic * masterVolume * 0.05f);
+            }
+            
+            if (currentDialogue) {
+                currentDialogue->stop();
+                delete currentDialogue;
+            }
+            currentDialogue = new sf::Music();
+            if (currentDialogue->openFromFile("assets/music/dialog/inferno tres.MP3")) {
+                currentDialogue->setVolume(100.f);
+                currentDialogue->play();
+                isPlayingDialogue = true;
+                markInfernoIntroPlayed();
+                std::cout << "Reproduciendo inferno tres.mp3 (primera vez en Inferno)" << std::endl;
+            }
+        }
         
         // Seleccionar música aleatoria del modo Inferno
         std::cout << "MODO INFERNO ACTIVADO!" << std::endl;
@@ -2665,6 +3176,14 @@ void Game::processGameOverInput(char c) {
         }
     }
     
+    // Verificar si la letra pertenece a "menu"
+    for (size_t i = 0; i < targetMenu.length(); ++i) {
+        if (targetMenu[i] == c && !menuProgress[i]) {
+            menuProgress[i] = true;
+            break;
+        }
+    }
+    
     // Verificar si "reboot" está completo
     bool rebootComplete = true;
     for (bool progress : rebootProgress) {
@@ -2683,11 +3202,21 @@ void Game::processGameOverInput(char c) {
         }
     }
     
+    // Verificar si "menu" está completo
+    bool menuComplete = true;
+    for (bool progress : menuProgress) {
+        if (!progress) {
+            menuComplete = false;
+            break;
+        }
+    }
+    
     // Ejecutar comando si está completo
     if (rebootComplete) {
         // Reiniciar progreso para próxima vez
         rebootProgress = {false, false, false, false, false, false};
         gameOverExitProgress = {false, false, false, false};
+        menuProgress = {false, false, false, false};
         currentGameOverInput = "";
         
         // Reiniciar juego (volver a jugar)
@@ -2705,6 +3234,38 @@ void Game::processGameOverInput(char c) {
         } else {
             std::cout << "ERROR: No hay música cargada!" << std::endl;
         }
+    }
+    else if (menuComplete) {
+        // Volver al menú principal
+        rebootProgress = {false, false, false, false, false, false};
+        gameOverExitProgress = {false, false, false, false};
+        menuProgress = {false, false, false, false};
+        currentGameOverInput = "";
+        
+        // Resetear estado del juego
+        state = GameState::Menu;
+        lives = 3;
+        maxLives = 3;
+        score = 0;
+        showMatrixEffect = false;
+        isInfernoMode = false;
+        invertedControls = false;
+        
+        // Detener música de juego y reproducir música del menú
+        if (currentBackgroundMusic) currentBackgroundMusic->stop();
+        if (currentLowLifeMusic) currentLowLifeMusic->stop();
+        isPlayingLowLifeMusic = false;
+        menuMusic.play();
+        
+        // Reiniciar progreso de comandos del menú
+        playProgress = {false, false, false, false};
+        exitProgress = {false, false, false, false};
+        controlsProgress = {false, false, false, false, false, false, false, false};
+        infernoProgress = {false, false, false, false, false, false, false};
+        helpProgress = {false, false, false, false};
+        currentInput = "";
+        
+        std::cout << "Volviendo al menú principal..." << std::endl;
     }
     else if (gameOverExitComplete) {
         // Salir del juego
@@ -3061,5 +3622,396 @@ void Game::addScreenCrack() {
         if (screenCracks.size() > 200) {
             screenCracks.erase(screenCracks.begin(), screenCracks.begin() + 40);
         }
+    }
+}
+// ============================================
+// SISTEMA DE DIÁLOGOS PROGRESIVOS
+// ============================================
+
+bool Game::isDialogueCompleted(const std::string& eventId) {
+    std::string filePath = eventId + ".txt";  // En la carpeta base del proyecto
+    std::ifstream file(filePath);
+    
+    if (!file.is_open()) {
+        // El archivo no existe, diálogo no completado
+        return false;
+    }
+    
+    std::string content;
+    std::getline(file, content);
+    file.close();
+    
+    // Si el archivo contiene "1", el diálogo ya fue completado
+    return (content == "1");
+}
+
+void Game::markDialogueCompleted(const std::string& eventId) {
+    std::string filePath = eventId + ".txt";  // En la carpeta base del proyecto
+    std::ofstream file(filePath);
+    
+    if (file.is_open()) {
+        file << "1";
+        file.close();
+        std::cout << "Diálogo marcado como completado: " << eventId << std::endl;
+    } else {
+        std::cout << "ERROR: No se pudo crear archivo de diálogo: " << filePath << std::endl;
+    }
+}
+
+void Game::checkDialogueEvent(const std::string& eventId, const std::string& audioFile) {
+    // Si ya está reproduciendo un diálogo, no interrumpir
+    if (isPlayingDialogue && currentDialogue && currentDialogue->getStatus() == sf::Music::Playing) {
+        return;
+    }
+    
+    // Si el diálogo ya fue completado, no reproducir
+    if (isDialogueCompleted(eventId)) {
+        return;
+    }
+    
+    // Cargar y reproducir el audio del diálogo
+    if (currentDialogue) {
+        delete currentDialogue;
+    }
+    currentDialogue = new sf::Music();
+    
+    std::string audioPath = "assets/music/dialog/" + audioFile;
+    if (currentDialogue->openFromFile(audioPath)) {
+        // Bajar volumen de todas las músicas temporalmente (casi silenciar)
+        if (currentBackgroundMusic) {
+            currentBackgroundMusic->setVolume(masterVolume * 0.05f);  // 5% - casi silenciado
+        }
+        menuMusic.setVolume(masterVolume * 0.05f);  // 5% - casi silenciado
+        
+        // Volumen máximo para el diálogo (siempre al 100%)
+        currentDialogue->setVolume(100.f);
+        currentDialogue->play();
+        isPlayingDialogue = true;
+        
+        std::cout << "Reproduciendo diálogo: " << audioFile << std::endl;
+        
+        // Marcar como completado
+        markDialogueCompleted(eventId);
+    } else {
+        std::cout << "ERROR: No se pudo cargar audio de diálogo: " << audioPath << std::endl;
+        isPlayingDialogue = false;
+    }
+}
+int Game::getInfernoAttempts() {
+    std::string filePath = "security_guard.txt";
+    std::ifstream file(filePath);
+    
+    if (!file.is_open()) {
+        return 0;
+    }
+    
+    std::string line1, line2;
+    std::getline(file, line1);
+    std::getline(file, line2);
+    file.close();
+    
+    if (line2.empty()) {
+        return 0;
+    }
+    
+    try {
+        return std::stoi(line2);
+    } catch (...) {
+        return 0;
+    }
+}
+
+void Game::saveInfernoAttempts(int count) {
+    std::string filePath = "security_guard.txt";
+    
+    // Leer todas las líneas existentes
+    std::vector<std::string> lines(6, "0"); // 6 líneas por defecto
+    std::ifstream readFile(filePath);
+    if (readFile.is_open()) {
+        std::string line;
+        int i = 0;
+        while (std::getline(readFile, line) && i < 6) {
+            lines[i] = line;
+            i++;
+        }
+        readFile.close();
+    }
+    
+    // Actualizar línea 2 (índice 1) con el contador
+    lines[1] = std::to_string(count);
+    
+    // Escribir todas las líneas
+    std::ofstream writeFile(filePath);
+    if (writeFile.is_open()) {
+        for (size_t i = 0; i < lines.size(); i++) {
+            writeFile << lines[i];
+            if (i < lines.size() - 1) writeFile << "\n";
+        }
+        writeFile.close();
+        std::cout << "Intentos de Inferno guardados: " << count << std::endl;
+    }
+}
+
+// Sistema de diálogos aleatorios durante el juego
+void Game::initGameDialogues() {
+    gameDialogueTimer = 0.f;
+    dialoguesPlayed = 0;
+    pendingDialogues.clear();
+    
+    // Solo en modo normal (no Inferno), verificar qué diálogos faltan
+    if (!isInfernoMode) {
+        if (!isGameDialoguePlayed(1)) pendingDialogues.push_back(1);
+        if (!isGameDialoguePlayed(2)) pendingDialogues.push_back(2);
+        if (!isGameDialoguePlayed(3)) pendingDialogues.push_back(3);
+        
+        // Mezclar aleatoriamente
+        if (!pendingDialogues.empty()) {
+            for (size_t i = pendingDialogues.size() - 1; i > 0; i--) {
+                size_t j = rand() % (i + 1);
+                std::swap(pendingDialogues[i], pendingDialogues[j]);
+            }
+        }
+        
+        // Primer diálogo entre 15-30 segundos
+        nextDialogueTime = 15.f + static_cast<float>(rand() % 16);
+        std::cout << "Diálogos pendientes: " << pendingDialogues.size() 
+                  << ", próximo en " << nextDialogueTime << "s" << std::endl;
+    }
+}
+
+void Game::updateGameDialogues(float dt) {
+    // Solo en modo normal y si hay diálogos pendientes
+    if (isInfernoMode || pendingDialogues.empty() || isPlayingDialogue) return;
+    
+    gameDialogueTimer += dt;
+    
+    if (gameDialogueTimer >= nextDialogueTime) {
+        // Reproducir el siguiente diálogo
+        int dialogueIndex = pendingDialogues.back();
+        pendingDialogues.pop_back();
+        
+        std::string audioFile;
+        switch (dialogueIndex) {
+            case 1: audioFile = "dos rnd1.mp3"; break;
+            case 2: audioFile = "dos rnd 2.mp3"; break;
+            case 3: audioFile = "dos rnd 3.mp3"; break;
+        }
+        
+        std::cout << "Reproduciendo diálogo aleatorio: " << audioFile << std::endl;
+        
+        // Reproducir el diálogo
+        if (currentDialogue) {
+            currentDialogue->stop();
+            delete currentDialogue;
+        }
+        currentDialogue = new sf::Music();
+        if (currentDialogue->openFromFile("assets/music/dialog/" + audioFile)) {
+            // Bajar volumen de música de fondo y efectos para escuchar el diálogo
+            if (currentBackgroundMusic) {
+                currentBackgroundMusic->setVolume(baseVolumeMusic * masterVolume * 0.05f);  // 5% durante diálogo
+            }
+            bounceSound.setVolume(baseVolumeEffects * masterVolume * 0.15f);  // 15% durante diálogo
+            
+            currentDialogue->setVolume(100.f);  // Volumen máximo para voz calmada
+            currentDialogue->play();
+            isPlayingDialogue = true;
+            
+            // Marcar como reproducido
+            markGameDialoguePlayed(dialogueIndex);
+        }
+        
+        // Resetear timer y programar siguiente (20-40 segundos)
+        gameDialogueTimer = 0.f;
+        nextDialogueTime = 20.f + static_cast<float>(rand() % 21);
+        dialoguesPlayed++;
+    }
+}
+
+bool Game::isGameDialoguePlayed(int index) {
+    std::string filePath = "security_guard.txt";
+    std::ifstream file(filePath);
+    
+    if (!file.is_open()) return false;
+    
+    std::string line;
+    int lineNum = 3 + index; // líneas 4, 5, 6 (índices 1, 2, 3)
+    
+    for (int i = 1; i <= lineNum && std::getline(file, line); i++) {
+        if (i == lineNum) {
+            file.close();
+            return line == "1";
+        }
+    }
+    
+    file.close();
+    return false;
+}
+
+void Game::markGameDialoguePlayed(int index) {
+    std::string filePath = "security_guard.txt";
+    
+    // Leer todas las líneas existentes
+    std::vector<std::string> lines(6, "0"); // 6 líneas
+    std::ifstream readFile(filePath);
+    if (readFile.is_open()) {
+        std::string line;
+        int i = 0;
+        while (std::getline(readFile, line) && i < 6) {
+            lines[i] = line;
+            i++;
+        }
+        readFile.close();
+    }
+    
+    // Marcar la línea correspondiente (índice 3+index-1 = 2+index)
+    int lineIndex = 2 + index; // línea 4=índice3, línea 5=índice4, línea 6=índice5
+    if (lineIndex < 7) {
+        lines[lineIndex] = "1";
+    }
+    
+    // Escribir todas las líneas
+    std::ofstream writeFile(filePath);
+    if (writeFile.is_open()) {
+        for (size_t i = 0; i < lines.size(); i++) {
+            writeFile << lines[i];
+            if (i < lines.size() - 1) writeFile << "\n";
+        }
+        writeFile.close();
+        std::cout << "Diálogo " << index << " marcado como reproducido (línea " << (lineIndex + 1) << ")" << std::endl;
+    }
+}
+
+// Sistema de controles invertidos para modo Inferno
+void Game::updateInvertedControls(float dt) {
+    if (!isInfernoMode || isPlayingDialogue) return;
+    
+    invertControlsTimer += dt;
+    
+    if (invertControlsTimer >= nextInvertTime) {
+        // Reproducir tres cambio.mp3 y cambiar controles
+        if (currentDialogue) {
+            currentDialogue->stop();
+            delete currentDialogue;
+        }
+        currentDialogue = new sf::Music();
+        if (currentDialogue->openFromFile("assets/music/dialog/tres cambio.MP3")) {
+            // Bajar volumen de música de fondo
+            if (currentBackgroundMusic) {
+                currentBackgroundMusic->setVolume(baseVolumeMusic * masterVolume * 0.05f);
+            }
+            bounceSound.setVolume(baseVolumeEffects * masterVolume * 0.15f);
+            
+            currentDialogue->setVolume(100.f);
+            currentDialogue->play();
+            isPlayingDialogue = true;
+            
+            // Invertir controles
+            invertedControls = !invertedControls;
+            std::cout << "CONTROLES " << (invertedControls ? "INVERTIDOS" : "NORMALES") << "!" << std::endl;
+        }
+        
+        // Resetear timer para próximo cambio (20-45 segundos)
+        invertControlsTimer = 0.f;
+        nextInvertTime = 20.f + static_cast<float>(rand() % 26);
+    }
+}
+
+bool Game::isInfernoIntroPlayed() {
+    std::string filePath = "security_guard.txt";
+    std::ifstream file(filePath);
+    
+    if (!file.is_open()) return false;
+    
+    std::string line;
+    // Leer hasta línea 7
+    for (int i = 1; i <= 7 && std::getline(file, line); i++) {
+        if (i == 7) {
+            file.close();
+            return line == "1";
+        }
+    }
+    
+    file.close();
+    return false;
+}
+
+void Game::markInfernoIntroPlayed() {
+    std::string filePath = "security_guard.txt";
+    
+    // Leer todas las líneas existentes
+    std::vector<std::string> lines(7, "0"); // 7 líneas ahora
+    std::ifstream readFile(filePath);
+    if (readFile.is_open()) {
+        std::string line;
+        int i = 0;
+        while (std::getline(readFile, line) && i < 7) {
+            lines[i] = line;
+            i++;
+        }
+        readFile.close();
+    }
+    
+    // Marcar línea 7 (índice 6)
+    lines[6] = "1";
+    
+    // Escribir todas las líneas
+    std::ofstream writeFile(filePath);
+    if (writeFile.is_open()) {
+        for (size_t i = 0; i < lines.size(); i++) {
+            writeFile << lines[i];
+            if (i < lines.size() - 1) writeFile << "\n";
+        }
+        writeFile.close();
+        std::cout << "Inferno intro marcado como reproducido (línea 7)" << std::endl;
+    }
+}
+
+bool Game::isInfernoFirstDeathPlayed() {
+    std::string filePath = "security_guard.txt";
+    std::ifstream file(filePath);
+    
+    if (!file.is_open()) return false;
+    
+    std::string line;
+    // Leer hasta línea 8
+    for (int i = 1; i <= 8 && std::getline(file, line); i++) {
+        if (i == 8) {
+            file.close();
+            return line == "1";
+        }
+    }
+    
+    file.close();
+    return false;
+}
+
+void Game::markInfernoFirstDeathPlayed() {
+    std::string filePath = "security_guard.txt";
+    
+    // Leer todas las líneas existentes
+    std::vector<std::string> lines(8, "0"); // 8 líneas ahora
+    std::ifstream readFile(filePath);
+    if (readFile.is_open()) {
+        std::string line;
+        int i = 0;
+        while (std::getline(readFile, line) && i < 8) {
+            lines[i] = line;
+            i++;
+        }
+        readFile.close();
+    }
+    
+    // Marcar línea 8 (índice 7)
+    lines[7] = "1";
+    
+    // Escribir todas las líneas
+    std::ofstream writeFile(filePath);
+    if (writeFile.is_open()) {
+        for (size_t i = 0; i < lines.size(); i++) {
+            writeFile << lines[i];
+            if (i < lines.size() - 1) writeFile << "\n";
+        }
+        writeFile.close();
+        std::cout << "Primera muerte Inferno marcada como reproducida (línea 8)" << std::endl;
     }
 }

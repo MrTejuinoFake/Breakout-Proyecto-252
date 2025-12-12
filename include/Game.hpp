@@ -2,6 +2,8 @@
 #include <SFML/Graphics.hpp>
 #include <SFML/Audio.hpp>
 #include <vector>  // Necesario para listas dinámicas
+#include <fstream> // Para sistema de diálogos
+#include <string>  // Para manejo de strings
 #include "Brick.hpp"
 #include "Ball.hpp"
 #include "Paddle.hpp"
@@ -148,10 +150,13 @@ private:
     std::string targetExit;            // "exit"
     std::string targetControls;        // "controls"
     std::string targetInferno;         // "inferno"
+    std::string targetHelp;            // "help"
     std::vector<bool> playProgress;    // Progreso de "play" (p, l, a, y)
     std::vector<bool> exitProgress;    // Progreso de "exit" (e, x, i, t)
     std::vector<bool> controlsProgress;// Progreso de "controls" (c, o, n, t, r, o, l, s)
     std::vector<bool> infernoProgress; // Progreso de "inferno" (i, n, f, e, r, n, o)
+    std::vector<bool> helpProgress;    // Progreso de "help" (h, e, l, p)
+    int lastHelpAudio;                 // Último audio de help reproducido (1, 2 o 3)
     sf::Text terminalPrompt;           // "C:\\ARKANOID> "
     sf::Text playCommand;
     sf::Text exitCommand;
@@ -178,11 +183,14 @@ private:
     // Menú terminal de Game Over
     std::string currentGameOverInput;
     std::string targetReboot;          // "reboot"
+    std::string targetMenu;            // "menu"
     std::vector<bool> rebootProgress;  // Progreso de "reboot" (r, e, b, o, o, t)
     std::vector<bool> gameOverExitProgress; // Progreso de "exit" para game over
+    std::vector<bool> menuProgress;    // Progreso de "menu" (m, e, n, u)
     sf::Text gameOverPrompt;
     sf::Text rebootCommand;
     sf::Text gameOverExitCommand;
+    sf::Text menuCommand;              // Texto del comando menu
     
     // Fuentes y textos
     sf::Font font;
@@ -224,6 +232,44 @@ private:
     // Funciones de volumen
     void updateMasterVolume();           // Actualizar todos los volúmenes con el maestro
     void processVolumeInput(char c);     // Procesar input de volumen
+    
+    // Sistema de diálogos progresivos
+    void checkDialogueEvent(const std::string& eventId, const std::string& audioFile);
+    bool isDialogueCompleted(const std::string& eventId);
+    void markDialogueCompleted(const std::string& eventId);
+    int getInfernoAttempts();            // Leer intentos de inferno del txt
+    void saveInfernoAttempts(int count); // Guardar intentos de inferno en el txt
+    sf::Music* currentDialogue;          // Música del diálogo actual
+    bool isPlayingDialogue;              // Si está reproduciendo un diálogo
+    
+    // Sistema de crasheo falso (Inferno)
+    sf::Texture bluescreenTexture;       // Textura del bluescreen
+    sf::Sprite bluescreenSprite;         // Sprite del bluescreen
+    bool showBluescreen;                 // Si mostrar el bluescreen
+    
+    // Detección de versión de Windows
+    bool isWindows11;                    // true = Windows 11, false = Windows 10 o anterior
+    void detectWindowsVersion();         // Detectar versión de Windows al inicio
+    
+    // Sistema de diálogos aleatorios durante el juego (modo normal)
+    float gameDialogueTimer;             // Timer para espaciar diálogos
+    float nextDialogueTime;              // Tiempo hasta el siguiente diálogo
+    int dialoguesPlayed;                 // Cantidad de diálogos reproducidos en esta sesión
+    std::vector<int> pendingDialogues;   // Diálogos pendientes (índices 1, 2, 3)
+    void initGameDialogues();            // Inicializar sistema de diálogos del juego
+    void updateGameDialogues(float dt);  // Actualizar timer y reproducir diálogos
+    bool isGameDialoguePlayed(int index); // Verificar si un diálogo ya se reprodujo (líneas 4,5,6)
+    void markGameDialoguePlayed(int index); // Marcar diálogo como reproducido
+    
+    // Sistema de controles invertidos (modo Inferno)
+    bool invertedControls;               // Si los controles están invertidos
+    float invertControlsTimer;           // Timer para próximo cambio de controles
+    float nextInvertTime;                // Tiempo hasta el próximo cambio
+    void updateInvertedControls(float dt); // Actualizar sistema de controles invertidos
+    bool isInfernoIntroPlayed();         // Verificar si inferno tres.mp3 ya se reprodujo (línea 7)
+    void markInfernoIntroPlayed();       // Marcar inferno tres.mp3 como reproducido
+    bool isInfernoFirstDeathPlayed();    // Verificar si uno.mp3 ya se reprodujo (línea 8)
+    void markInfernoFirstDeathPlayed();  // Marcar uno.mp3 como reproducido
     
     // Sistema de efectos visuales
     std::vector<Particle> particles;
