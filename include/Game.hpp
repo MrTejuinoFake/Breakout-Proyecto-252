@@ -68,7 +68,10 @@ private:
     // Efectos visuales
     void createBrickParticles(sf::Vector2f position, sf::Color color);
     void updateParticles(float dt);
-    void renderActivePowerUpsHUD();         // Renderizar HUD de power-ups activos 
+    void renderActivePowerUpsHUD();         // Renderizar HUD de power-ups activos
+    void updateInfernoEffects(float dt);    // Actualizar efectos del modo Inferno
+    void renderInfernoEffects();            // Renderizar efectos del modo Inferno
+    void addScreenCrack();                  // Añadir grieta en pantalla (Inferno)
 
     sf::RenderWindow window;
     GameState state;
@@ -159,6 +162,15 @@ private:
     // Modo de juego
     bool isInfernoMode;                // true = modo Inferno, false = modo Normal
     
+    // Efectos especiales del modo Inferno
+    float infernoShakeTimer;           // Timer para sacudidas aleatorias
+    float nextInfernoShakeTime;        // Próximo tiempo de sacudida (5-30 segundos)
+    int infernoHitCount;               // Contador de golpes para grietas
+    float infernoBrightnessGlitch;     // Efecto de brillo fallando (0.0 - 1.0)
+    float glitchTimer;                 // Timer para el efecto de glitch
+    bool isGlitching;                  // Si está en medio de un glitch
+    std::vector<sf::RectangleShape> screenCracks; // Grietas en pantalla
+    
     // Menú de controles
     std::string currentControlsInput;  // Lo que ha escrito el usuario en controles
     std::vector<bool> returnProgress;  // Progreso de "return" (r, e, t, u, r, n)
@@ -183,6 +195,7 @@ private:
     
     // Sistema de audio
     std::vector<sf::Music*> backgroundMusicTracks;  // 7 músicas de fondo aleatorias
+    std::vector<sf::Music*> infernoMusicTracks;     // 6 músicas del modo Inferno
     sf::Music* currentBackgroundMusic;              // Música actual
     int currentTrackIndex;                          // Índice de la música actual
     

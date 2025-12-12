@@ -364,6 +364,21 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
         }
     }
     
+    // Cargar 6 músicas del modo Inferno
+    for (int i = 1; i <= 6; i++) {
+        sf::Music* track = new sf::Music();
+        std::string filename = "assets/music/inferno" + std::to_string(i) + ".mp3";
+        if (track->openFromFile(filename)) {
+            track->setLoop(true);
+            track->setVolume(baseVolumeMusic * masterVolume);
+            infernoMusicTracks.push_back(track);
+            std::cout << "Música Inferno " << i << " cargada correctamente" << std::endl;
+        } else {
+            std::cout << "No se pudo cargar " << filename << std::endl;
+            delete track;
+        }
+    }
+    
     // Seleccionar música aleatoria al inicio
     if (!backgroundMusicTracks.empty()) {
         currentTrackIndex = std::rand() % backgroundMusicTracks.size();
@@ -550,6 +565,15 @@ Game::Game() : state(GameState::Menu), lives(3), score(0), masterVolume(0.5f), v
     // Inicializar modo de juego
     isInfernoMode = false;
     
+    // Inicializar efectos caóticos del modo Inferno
+    infernoShakeTimer = 0.0f;
+    nextInfernoShakeTime = 5.0f + static_cast<float>(rand() % 26); // 5-30 segundos
+    infernoHitCount = 0;
+    infernoBrightnessGlitch = 1.0f;
+    glitchTimer = 0.0f;
+    isGlitching = false;
+    screenCracks.clear();
+    
     // Inicializar sistema de menú de controles
     currentControlsInput = "";
     returnProgress = {false, false, false, false, false, false}; // r, e, t, u, r, n
@@ -625,6 +649,12 @@ Game::~Game() {
         delete track;
     }
     backgroundMusicTracks.clear();
+    
+    // Liberar memoria de las músicas del modo Inferno
+    for (auto* track : infernoMusicTracks) {
+        delete track;
+    }
+    infernoMusicTracks.clear();
 }
 
 // Bucle principal (Game Loop)
@@ -944,6 +974,15 @@ void Game::update() {
     } else {
         // Actualizar posición normalmente
         ball.update(dt);
+        
+        // Limitar velocidad máxima para evitar atravesar objetos
+        float currentSpeed = std::sqrt(ball.velocity.x * ball.velocity.x + ball.velocity.y * ball.velocity.y);
+        float maxSpeed = isInfernoMode ? 650.0f : 500.0f;  // Inferno más rápido pero controlado
+        if (currentSpeed > maxSpeed) {
+            float scale = maxSpeed / currentSpeed;
+            ball.velocity.x *= scale;
+            ball.velocity.y *= scale;
+        }
     }
 
     // Colisión con paredes (izquierda/derecha)
@@ -986,14 +1025,35 @@ void Game::update() {
             screenShakeIntensity = 2.5f;
         }
     }
-    // Si la bola principal cae abajo, perder vida (las extras no importan)
+    // Si la bola principal cae abajo
     if (pos.y - r > window.getSize().y) {
-        loseLife();
+        // Si hay bolas extra, promover una a bola principal
+        if (!extraBalls.empty()) {
+            // Tomar la primera bola extra y convertirla en principal
+            Ball& newMain = extraBalls.front();
+            ball.setPosition(newMain.getPosition());
+            ball.velocity = newMain.velocity;
+            ball.isStuck = false;
+            // Remover esa bola de las extras
+            extraBalls.erase(extraBalls.begin());
+        } else {
+            // No quedan bolas, perder vida
+            loseLife();
+        }
     }
     
     // Actualizar bolas extra
     for (auto& extraBall : extraBalls) {
         extraBall.update(dt);
+        
+        // Limitar velocidad máxima de bolas extra también
+        float extraSpeed = std::sqrt(extraBall.velocity.x * extraBall.velocity.x + extraBall.velocity.y * extraBall.velocity.y);
+        float maxExtraSpeed = isInfernoMode ? 650.0f : 500.0f;
+        if (extraSpeed > maxExtraSpeed) {
+            float scale = maxExtraSpeed / extraSpeed;
+            extraBall.velocity.x *= scale;
+            extraBall.velocity.y *= scale;
+        }
         
         // Colisiones de bolas extra con paredes
         sf::Vector2f extraPos = extraBall.getPosition();
@@ -1085,6 +1145,12 @@ void Game::update() {
             if (brick.isIndestructible) continue;  // Saltar bloques indestructibles
             if (extraBall.getGlobalBounds().intersects(brick.getGlobalBounds())) {
                 brick.hitsRemaining--;
+                
+                // Incrementar contador de golpes para grietas en Inferno
+                if (isInfernoMode) {
+                    infernoHitCount++;
+                    addScreenCrack();
+                }
                 
                 if (brick.hitsRemaining <= 0) {
                     brick.isDestroyed = true;
@@ -1217,6 +1283,12 @@ void Game::update() {
         if (ball.getGlobalBounds().intersects(brick.getGlobalBounds())) {
             // Reducir golpes restantes
             brick.hitsRemaining--;
+            
+            // Incrementar contador de golpes para grietas en Inferno
+            if (isInfernoMode) {
+                infernoHitCount++;
+                addScreenCrack();
+            }
             
             // Si ya no quedan golpes, destruir el bloque
             if (brick.hitsRemaining <= 0) {
@@ -1398,18 +1470,22 @@ void Game::update() {
                         break;
                     case PowerUpType::MultiBall:
                         // Crear 2 bolas adicionales
-                        for (int i = 0; i < 2; i++) {
-                            Ball newBall(ball.getRadius(), true);  // true = extra ball (colored)
-                            newBall.setPosition(ball.getPosition());
-                            newBall.speed = ball.speed;
-                            float angle = (std::rand() % 60 - 30) * 3.14159f / 180.f;
-                            newBall.velocity = sf::Vector2f(
-                                ball.velocity.x * std::cos(angle) - ball.velocity.y * std::sin(angle),
-                                ball.velocity.x * std::sin(angle) + ball.velocity.y * std::cos(angle)
-                            );
-                            newBall.isStuck = false;
-                            extraBalls.push_back(newBall);
+                        // Solo crear si la bola principal NO está pegada al paddle
+                        if (!ball.isStuck) {
+                            for (int i = 0; i < 2; i++) {
+                                Ball newBall(ball.getRadius(), true);  // true = extra ball (colored)
+                                newBall.setPosition(ball.getPosition());
+                                newBall.speed = ball.speed;
+                                float angle = (std::rand() % 60 - 30) * 3.14159f / 180.f;
+                                newBall.velocity = sf::Vector2f(
+                                    ball.velocity.x * std::cos(angle) - ball.velocity.y * std::sin(angle),
+                                    ball.velocity.x * std::sin(angle) + ball.velocity.y * std::cos(angle)
+                                );
+                                newBall.isStuck = false;
+                                extraBalls.push_back(newBall);
+                            }
                         }
+                        // Si la bola está pegada, el power-up simplemente no hace efecto
                         break;
                     case PowerUpType::ExtraLife:
                         if (lives < maxLives) {
@@ -1611,6 +1687,9 @@ void Game::update() {
     // Actualizar estelas de la pelota
     updateBallTrails(dt);
     
+    // Actualizar efectos caóticos del modo Inferno
+    updateInfernoEffects(dt);
+    
     // Actualizar sacudida de pantalla
     if (screenShakeDuration > 0.f) {
         screenShakeDuration -= dt;
@@ -1789,6 +1868,9 @@ void Game::render() {
         
         // Dibujar HUD de power-ups activos con contador
         renderActivePowerUpsHUD();
+        
+        // Renderizar efectos caóticos del modo Inferno (grietas, glitches)
+        renderInfernoEffects();
         
     } else if (state == GameState::Controls) {
         renderControls();
@@ -2028,14 +2110,29 @@ void Game::resetGame() {
     extraBalls.clear();
     activePowerUps.clear();  // Limpiar poder-ups activos
     
+    // Resetear efectos caóticos del modo Inferno
+    infernoShakeTimer = 0.0f;
+    nextInfernoShakeTime = 5.0f + static_cast<float>(rand() % 26);
+    infernoHitCount = 0;
+    infernoBrightnessGlitch = 1.0f;
+    glitchTimer = 0.0f;
+    isGlitching = false;
+    screenCracks.clear();
+    
     // Seleccionar nueva música aleatoria para el nuevo juego
     std::cout << "Seleccionando música aleatoria..." << std::endl;
-    if (!backgroundMusicTracks.empty()) {
+    
+    // Elegir música según el modo de juego
+    if (isInfernoMode && !infernoMusicTracks.empty()) {
+        currentTrackIndex = std::rand() % infernoMusicTracks.size();
+        currentBackgroundMusic = infernoMusicTracks[currentTrackIndex];
+        std::cout << "Música Inferno seleccionada: índice " << currentTrackIndex << std::endl;
+    } else if (!backgroundMusicTracks.empty()) {
         currentTrackIndex = std::rand() % backgroundMusicTracks.size();
         currentBackgroundMusic = backgroundMusicTracks[currentTrackIndex];
-        std::cout << "Música seleccionada: índice " << currentTrackIndex << std::endl;
+        std::cout << "Música normal seleccionada: índice " << currentTrackIndex << std::endl;
     } else {
-        std::cout << "ERROR: No hay músicas cargadas en backgroundMusicTracks" << std::endl;
+        std::cout << "ERROR: No hay músicas cargadas" << std::endl;
         currentBackgroundMusic = nullptr;
     }
     
@@ -2239,6 +2336,11 @@ void Game::updateMasterVolume() {
     
     // Actualizar volumen de todas las músicas de fondo
     for (auto* track : backgroundMusicTracks) {
+        track->setVolume(baseVolumeMusic * masterVolume);
+    }
+    
+    // Actualizar volumen de todas las músicas de Inferno
+    for (auto* track : infernoMusicTracks) {
         track->setVolume(baseVolumeMusic * masterVolume);
     }
     
@@ -2488,10 +2590,15 @@ void Game::processTerminalInput(char c) {
         menuMusic.stop();
         resetGame();
         
-        // Reproducir música aleatoria
+        // Seleccionar música aleatoria del modo Inferno
         std::cout << "MODO INFERNO ACTIVADO!" << std::endl;
-        if (currentBackgroundMusic) {
-            std::cout << "Reproduciendo música de fondo" << std::endl;
+        if (!infernoMusicTracks.empty()) {
+            currentTrackIndex = std::rand() % infernoMusicTracks.size();
+            currentBackgroundMusic = infernoMusicTracks[currentTrackIndex];
+            std::cout << "Reproduciendo música Inferno " << currentTrackIndex + 1 << std::endl;
+            currentBackgroundMusic->play();
+        } else if (currentBackgroundMusic) {
+            std::cout << "Reproduciendo música de fondo (no hay músicas Inferno)" << std::endl;
             currentBackgroundMusic->play();
         } else {
             std::cout << "ERROR: No hay música cargada!" << std::endl;
@@ -2832,3 +2939,127 @@ void Game::renderActivePowerUpsHUD() {
     }
 }
 
+void Game::updateInfernoEffects(float dt) {
+    if (!isInfernoMode) return;
+    
+    // ====== SACUDIDAS ALEATORIAS VIOLENTAS ======
+    infernoShakeTimer += dt;
+    if (infernoShakeTimer >= nextInfernoShakeTime) {
+        // Activar sacudida violenta (reducida para no marear)
+        screenShakeIntensity = 6.0f;   // Intensidad moderada
+        screenShakeDuration = 0.25f;   // Duración más corta
+        
+        // Resetear timer y generar nuevo tiempo aleatorio (5-30 segundos)
+        infernoShakeTimer = 0.0f;
+        nextInfernoShakeTime = 5.0f + static_cast<float>(rand() % 26);
+    }
+    
+    // ====== EFECTO DE GLITCH DE BRILLO ======
+    if (isGlitching) {
+        glitchTimer -= dt;
+        if (glitchTimer <= 0.0f) {
+            isGlitching = false;
+            infernoBrightnessGlitch = 1.0f;  // Restaurar brillo
+        }
+    } else {
+        // Probabilidad aleatoria de iniciar un glitch (cada frame tiene pequeña chance)
+        if (rand() % 500 == 0) {  // ~0.2% chance por frame
+            isGlitching = true;
+            glitchTimer = 0.05f + static_cast<float>(rand() % 20) / 100.0f;  // 0.05-0.25 segundos
+            infernoBrightnessGlitch = 0.2f + static_cast<float>(rand() % 50) / 100.0f;  // 20%-70% brillo
+        }
+    }
+}
+
+void Game::renderInfernoEffects() {
+    if (!isInfernoMode) return;
+    
+    // ====== EFECTO DE BRILLO FALLANDO (OSCURECIMIENTO) ======
+    if (isGlitching && infernoBrightnessGlitch < 1.0f) {
+        // Crear overlay oscuro para simular fallo de monitor
+        sf::RectangleShape darknessOverlay(sf::Vector2f(
+            static_cast<float>(window.getSize().x),
+            static_cast<float>(window.getSize().y)
+        ));
+        darknessOverlay.setPosition(0, 0);
+        
+        // El alpha depende de cuánto se reduce el brillo
+        int alpha = static_cast<int>((1.0f - infernoBrightnessGlitch) * 200);
+        darknessOverlay.setFillColor(sf::Color(0, 0, 0, alpha));
+        window.draw(darknessOverlay);
+        
+        // Añadir líneas de escaneo horizontal para efecto CRT
+        if (rand() % 3 == 0) {  // Parpadeo aleatorio
+            for (int i = 0; i < 5; i++) {
+                sf::RectangleShape scanLine(sf::Vector2f(
+                    static_cast<float>(window.getSize().x),
+                    2.0f
+                ));
+                scanLine.setPosition(0, static_cast<float>(rand() % window.getSize().y));
+                scanLine.setFillColor(sf::Color(255, 255, 255, 30 + rand() % 40));
+                window.draw(scanLine);
+            }
+        }
+    }
+    
+    // ====== GRIETAS EN PANTALLA (ESTILO TELARAÑA) ======
+    for (const auto& crack : screenCracks) {
+        window.draw(crack);
+    }
+}
+
+void Game::addScreenCrack() {
+    if (!isInfernoMode) return;
+    
+    // Añadir grieta cada cierta cantidad de golpes
+    if (infernoHitCount % 8 == 0 && infernoHitCount > 0) {  // Cada 8 golpes
+        // Crear una grieta en posición aleatoria
+        float startX = static_cast<float>(rand() % window.getSize().x);
+        float startY = static_cast<float>(rand() % window.getSize().y);
+        
+        // Crear varias líneas finas como telaraña
+        int numSegments = 5 + rand() % 6;  // 5-10 segmentos
+        float currentX = startX;
+        float currentY = startY;
+        
+        for (int i = 0; i < numSegments; i++) {
+            // Longitud y ángulo aleatorio para cada segmento
+            float length = 20.0f + static_cast<float>(rand() % 50);
+            float angle = static_cast<float>(rand() % 360) * 3.14159f / 180.0f;
+            
+            // Línea muy fina y transparente (telaraña)
+            sf::RectangleShape crackLine(sf::Vector2f(length, 1.0f));
+            crackLine.setPosition(currentX, currentY);
+            crackLine.setRotation(angle * 180.0f / 3.14159f);
+            
+            // Color blanco muy transparente
+            int alpha = 40 + rand() % 40;  // 40-80 alpha (muy transparente)
+            crackLine.setFillColor(sf::Color(255, 255, 255, alpha));
+            
+            screenCracks.push_back(crackLine);
+            
+            // Añadir sub-ramas (50% probabilidad para más efecto telaraña)
+            if (rand() % 100 < 50) {
+                float branchLength = 10.0f + static_cast<float>(rand() % 25);
+                float branchAngle = angle + (rand() % 120 - 60) * 3.14159f / 180.0f;
+                
+                sf::RectangleShape branchLine(sf::Vector2f(branchLength, 1.0f));
+                branchLine.setPosition(currentX + length * 0.5f * cos(angle), 
+                                       currentY + length * 0.5f * sin(angle));
+                branchLine.setRotation(branchAngle * 180.0f / 3.14159f);
+                branchLine.setFillColor(sf::Color(255, 255, 255, 30 + rand() % 30));
+                
+                screenCracks.push_back(branchLine);
+            }
+            
+            // Siguiente segmento empieza donde termina este
+            currentX += length * cos(angle);
+            currentY += length * sin(angle);
+        }
+        
+        // Limitar cantidad máxima de grietas (para rendimiento)
+        if (screenCracks.size() > 200) {
+            screenCracks.erase(screenCracks.begin(), screenCracks.begin() + 40);
+        }
+    }
+}
