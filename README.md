@@ -2,6 +2,10 @@
 
 > Breakout modernizado con menú estilo terminal, audio completo y efecto Matrix.(pero sera solo un arkanoid clasico?)
 
+
+
+[crasheos intencioanles meintras se sigue los dialogos esperados, por lo que se debera de reabrir el juego al menos 3 veces para continuar con la historia]
+
 ## 
 - **Comandos**: PLAY / EXIT (menú), REBOOT / EXIT (game over)
 - **Controles**: ← → mover, ESPACIO lanzar, V volumen (00-99 + Enter), ESC salir/menú
@@ -10,6 +14,7 @@
 - **Efectos**: fondo con tinte por nivel, Matrix en Game Over
 
 ## 🎯 Qué tiene de especial
+- Dialogos que generan una pequeña historia(ver mas abajo bajo riesgo de spoiler)
 - Menú y game over tipo **terminal** con comandos escritos
 - **Bloques multi-golpe** y amarillos que aceleran la pelota
 - **Volumen maestro** editable en cualquier pantalla (V + 00-99 + Enter)
@@ -25,7 +30,7 @@ bin/Arkanoid.exe
 ```
 
 ## 🎮 Controles rápidos
-- Menú: escribe `play` o `exit`
+- Menú: escribe `play` o `exit` o `controls`
 - Juego: ← → mover, **ESPACIO** lanzar, **ESC** menú
 - Volumen: **V** → escribe 00-99 → **Enter** aplica (ESC cancela)
 
@@ -68,3 +73,12 @@ Proyecto 252 — [@MrTejuinoFake](https://github.com/MrTejuinoFake)
 
 Líder: Diego Ivan Sandoval Gutierrez (@Diegoo135)
 Integrante 2: Omar Ankin Rivas Zarate (@MrTejuinoFake)
+
+## Trama
+
+SPOILER
+
+
+
+
+esta inspirado en la termianl ms dos por lo mismo son tres hermanos, uno,dos y tres, tres la encargada de la seguridad , dos es la que trabaja y tiene control sobre la pc por lo que se comunicara cntigo por medio de logs en la carpeta main.por lo que es necesaria prestar especial atencion a los audios de dos y de tres, esperemos les guste que quisimos hacer algo un poco distinto a un juego block breaker.

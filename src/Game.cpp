@@ -831,8 +831,8 @@ void Game::processEvents() {
                     volumeInput.clear();
                     std::cout << "MODO VOLUMEN: Ingresa 00-99 y presiona Enter (ESC para cancelar)" << std::endl;
                 }
-                // Tecla M para reproducir audio especial
-                else if (event.key.code == sf::Keyboard::M) {
+                // Tecla G para reproducir audio especial
+                else if (event.key.code == sf::Keyboard::G) {
                     specialSound.play();
                 }
                 // Enter para aplicar volumen
@@ -891,8 +891,8 @@ void Game::processEvents() {
                     volumeInput.clear();
                     std::cout << "MODO VOLUMEN: Ingresa 00-99 y presiona Enter (ESC para cancelar)" << std::endl;
                 }
-                // Tecla M para reproducir audio especial
-                else if (event.key.code == sf::Keyboard::M) {
+                // Tecla G para reproducir audio especial
+                else if (event.key.code == sf::Keyboard::G) {
                     specialSound.play();
                 }
                 // Backspace para borrar
@@ -954,8 +954,8 @@ void Game::processEvents() {
                     volumeInput.clear();
                     std::cout << "MODO VOLUMEN: Ingresa 00-99 y presiona Enter (ESC para cancelar)" << std::endl;
                 }
-                // Tecla M para reproducir audio especial
-                else if (event.key.code == sf::Keyboard::M) {
+                // Tecla G para reproducir audio especial
+                else if (event.key.code == sf::Keyboard::G) {
                     specialSound.play();
                 }
                 // Tecla S para activar/desactivar velocidad del paddle (solo si tiene el PowerUp y no es nivel 0)
